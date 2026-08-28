@@ -1,0 +1,6 @@
+{
+  "name": "100 DAYS",
+  "description": "A 100-day mobile-first muscle-gain tracker and progressive overload training dashboard with daily nutrition schedules, photo checkpoints, and analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,113 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-display: 'Montserrat', system-ui, -apple-system, sans-serif;
+    --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  body {
+    font-family: var(--font-body);
+    background-color: #050810;
+    background-image: radial-gradient(circle at 50% 0%, #0d1c2d 0%, #050810 70%);
+    background-attachment: fixed;
+    color: #d4e4fa;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  h1, h2, h3, h4, h5, h6, .font-display {
+    font-family: var(--font-display);
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #050810;
+}
+::-webkit-scrollbar-thumb {
+  background: #1c2b3c;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #273647;
+}
+
+/* Hide scrollbar utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Neon glow classes */
+.glow-primary {
+  box-shadow: 0 0 20px rgba(195, 244, 0, 0.25);
+}
+
+.glow-primary-strong {
+  box-shadow: 0 0 25px rgba(195, 244, 0, 0.45);
+}
+
+.glow-secondary {
+  box-shadow: 0 0 20px rgba(0, 238, 252, 0.25);
+}
+
+.glow-secondary-strong {
+  box-shadow: 0 0 25px rgba(0, 238, 252, 0.45);
+}
+
+.card-bg {
+  background-color: #0E1421;
+  border: 1px solid #1E293B;
+}
+
+.card-bg-elevated {
+  background-color: #122131;
+  border: 1px solid #273647;
+}
+
+.input-dark {
+  background-color: #050810;
+  border: 1px solid #273647;
+  color: #ffffff;
+}
+
+.input-dark:focus {
+  border-color: #00eefc;
+  box-shadow: 0 0 0 1px #00eefc;
+  outline: none;
+}
+
+.neon-btn {
+  background-color: #c3f400;
+  color: #050810;
+  font-family: var(--font-display);
+  font-weight: 800;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.neon-btn:hover {
+  box-shadow: 0 0 20px rgba(195, 244, 0, 0.45);
+  transform: translateY(-1px);
+}
+
+.neon-btn:active {
+  transform: scale(0.98);
+}
+
+/* Safe area insets for mobile devices */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 16px);
+}
+.pt-safe-header {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+}

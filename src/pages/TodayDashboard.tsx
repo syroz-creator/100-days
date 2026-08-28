@@ -1,0 +1,475 @@
+import React, { useState } from 'react';
+import {
+  Scale,
+  Dumbbell,
+  UtensilsCrossed,
+  Droplets,
+  Footprints,
+  Moon,
+  Camera,
+  Flame,
+  Check,
+  Edit2,
+  ChevronRight,
+  Sparkles,
+} from 'lucide-react';
+import { DailyLog, UserProfile, WorkoutSplitId } from '../types';
+import { formatWeight } from '../utils/calculations';
+import { WORKOUT_TEMPLATES } from '../data/initialData';
+import { playClickBeep } from '../utils/sound';
+
+interface TodayDashboardProps {
+  log: DailyLog;
+  profile: UserProfile;
+  streak: number;
+  onUpdateLog: (updatedLog: DailyLog) => void;
+  onUpdateProfile: (updatedProfile: UserProfile) => void;
+  onNavigateToWorkout: () => void;
+  onNavigateToMeals: () => void;
+  onNavigateToProgress: () => void;
+}
+
+export const TodayDashboard: React.FC<TodayDashboardProps> = ({
+  log,
+  profile,
+  streak,
+  onUpdateLog,
+  onUpdateProfile,
+  onNavigateToWorkout,
+  onNavigateToMeals,
+  onNavigateToProgress,
+}) => {
+  const [isEditingWeight, setIsEditingWeight] = useState(false);
+  const [tempWeight, setTempWeight] = useState(log.weightKg?.toString() || profile.currentWeightKg.toString());
+
+  const currentSplitId = log.workoutSplitId || 'upper_a';
+  const workoutInfo = WORKOUT_TEMPLATES[currentSplitId] || WORKOUT_TEMPLATES.upper_a;
+
+  // Calculate task completion percentage (6 items)
+  const taskKeys: (keyof typeof log.tasks)[] = ['workout', 'meals', 'water', 'steps', 'sleep', 'photo'];
+  const completedCount = taskKeys.filter((k) => log.tasks[k]).length;
+  const completionPercentage = Math.round((completedCount / taskKeys.length) * 100);
+
+  // SVG Progress ring math
+  const radius = 70;
+  const circumference = 2 * Math.PI * radius; // 439.8
+  const strokeDashoffset = circumference - (completionPercentage / 100) * circumference;
+
+  const toggleTask = (taskKey: keyof typeof log.tasks) => {
+    playClickBeep();
+    const updatedTasks = {
+      ...log.tasks,
+      [taskKey]: !log.tasks[taskKey],
+    };
+
+    // If toggling workout, also sync workoutCompleted
+    const isWorkoutCompleted = taskKey === 'workout' ? updatedTasks.workout : log.workoutCompleted;
+
+    onUpdateLog({
+      ...log,
+      tasks: updatedTasks,
+      workoutCompleted: isWorkoutCompleted,
+    });
+  };
+
+  const handleSaveWeight = () => {
+    const num = parseFloat(tempWeight);
+    if (!isNaN(num) && num > 20 && num < 300) {
+      onUpdateLog({
+        ...log,
+        weightKg: num,
+      });
+      onUpdateProfile({
+        ...profile,
+        currentWeightKg: num,
+      });
+    }
+    setIsEditingWeight(false);
+  };
+
+  const getDaySubtitle = (day: number) => {
+    if (day === 1) return 'The journey begins now.';
+    if (day <= 15) return 'Building the unbreakable foundation.';
+    if (day <= 30) return 'Habits locked in. Hypertrophy in motion.';
+    if (day <= 60) return 'Consistency is sculpting strength.';
+    if (day <= 90) return 'Peak momentum. Push every set.';
+    if (day === 100) return 'Final day! The 100-day transformation unlocked!';
+    return 'One rep, one meal, one day at a time.';
+  };
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-300">
+      {/* Day Headline */}
+      <div className="text-center pt-2">
+        <h2 className="text-4xl md:text-5xl font-extrabold font-display text-white tracking-tighter">
+          Day {log.programDay} of 100
+        </h2>
+        <p className="text-sm md:text-base text-[#94A3B8] mt-1.5 font-medium">
+          {getDaySubtitle(log.programDay)}
+        </p>
+      </div>
+
+      {/* Hero Circular Progress Ring */}
+      <div className="flex flex-col items-center justify-center my-4">
+        <div className="relative w-44 h-44 flex items-center justify-center">
+          <svg className="w-full h-full -rotate-90" viewBox="0 0 160 160">
+            {/* Background Track */}
+            <circle
+              cx="80"
+              cy="80"
+              r={radius}
+              fill="transparent"
+              stroke="#1c2b3c"
+              strokeWidth="12"
+            />
+            {/* Animated Glow Progress Bar */}
+            <circle
+              cx="80"
+              cy="80"
+              r={radius}
+              fill="transparent"
+              stroke="#c3f400"
+              strokeWidth="12"
+              strokeDasharray={circumference}
+              strokeDashoffset={strokeDashoffset}
+              strokeLinecap="round"
+              className="transition-all duration-700 ease-out drop-shadow-[0_0_8px_rgba(195,244,0,0.5)]"
+            />
+          </svg>
+
+          {/* Center Content */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-4xl font-extrabold font-display text-white tracking-tight">
+              {completionPercentage}%
+            </span>
+            <span className="text-[10px] text-[#94A3B8] font-bold uppercase tracking-widest mt-0.5">
+              {completedCount} of 6 Tasks
+            </span>
+          </div>
+        </div>
+
+        {/* Streak Pill */}
+        <div className="mt-3 bg-[#c3f400]/10 border border-[#c3f400]/30 rounded-full px-4 py-1 flex items-center gap-1.5 shadow-[0_0_12px_rgba(195,244,0,0.15)]">
+          <Flame className="w-4 h-4 text-[#c3f400] fill-[#c3f400]" />
+          <span className="text-xs font-bold font-display text-[#c3f400] uppercase tracking-wider">
+            {streak} Day Streak
+          </span>
+        </div>
+      </div>
+
+      {/* Stats Bento Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+        {/* Current Weight Card */}
+        <div className="card-bg rounded-2xl p-4 flex flex-col justify-between relative group hover:border-[#00eefc]/40 transition-colors">
+          <div className="flex justify-between items-start">
+            <span className="text-xs font-bold text-[#8e9379] uppercase tracking-widest flex items-center gap-1.5">
+              Current Weight
+            </span>
+            <Scale className="w-5 h-5 text-[#00dbe9]" />
+          </div>
+
+          <div className="mt-3 flex items-baseline justify-between">
+            {isEditingWeight ? (
+              <div className="flex items-center gap-2 w-full">
+                <input
+                  type="number"
+                  step="0.1"
+                  value={tempWeight}
+                  onChange={(e) => setTempWeight(e.target.value)}
+                  className="input-dark w-28 rounded-lg px-2.5 py-1 text-lg font-bold"
+                  autoFocus
+                />
+                <button
+                  onClick={handleSaveWeight}
+                  className="px-3 py-1 bg-[#c3f400] text-[#050810] text-xs font-bold rounded-lg"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={() => setIsEditingWeight(false)}
+                  className="px-2 py-1 text-xs text-[#94A3B8] hover:text-white"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-3xl font-extrabold font-display text-white">
+                    {log.weightKg ? log.weightKg.toFixed(1) : profile.currentWeightKg.toFixed(1)}
+                  </span>
+                  <span className="text-sm font-medium text-[#8e9379]">{profile.unitSystem}</span>
+                </div>
+                <button
+                  onClick={() => setIsEditingWeight(true)}
+                  className="text-xs text-[#00eefc] hover:underline flex items-center gap-1 opacity-80 group-hover:opacity-100"
+                >
+                  <Edit2 className="w-3.5 h-3.5" /> Log Weight
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Today's Focus Card */}
+        <div
+          onClick={onNavigateToWorkout}
+          className="card-bg rounded-2xl p-4 flex flex-col justify-between border-l-4 border-l-[#7df4ff] cursor-pointer hover:border-[#00eefc] hover:bg-[#122131]/60 transition-all group"
+        >
+          <div className="flex justify-between items-start">
+            <span className="text-xs font-bold text-[#8e9379] uppercase tracking-widest">
+              Today's Focus
+            </span>
+            <Dumbbell className="w-5 h-5 text-[#00dbe9] group-hover:scale-110 transition-transform" />
+          </div>
+
+          <div className="mt-3 flex items-center justify-between">
+            <div>
+              <h3 className="text-xl font-bold font-display text-[#7df4ff]">
+                {workoutInfo.name}
+              </h3>
+              <div className="mt-1 flex items-center gap-2">
+                <span className="inline-block px-2.5 py-0.5 rounded-full bg-[#1c2b3c] text-[11px] font-semibold text-[#d4e4fa]">
+                  {workoutInfo.type === 'strength' ? 'Strength Hypertrophy' : 'Active Recovery'}
+                </span>
+                <span className="text-[11px] text-[#94A3B8]">{workoutInfo.estimatedMinutes} min</span>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-[#7df4ff] group-hover:translate-x-1 transition-transform" />
+          </div>
+        </div>
+      </div>
+
+      {/* Daily Tasks Checklist */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xl font-bold font-display text-white">Daily Tasks</h3>
+          <span className="text-xs text-[#8e9379] font-medium">Tap to check off</span>
+        </div>
+
+        <div className="space-y-2.5">
+          {/* Task 1: Workout */}
+          <div
+            onClick={() => toggleTask('workout')}
+            className={`card-bg rounded-xl p-3.5 flex items-center justify-between cursor-pointer border transition-all ${
+              log.tasks.workout
+                ? 'border-[#c3f400]/40 bg-[#c3f400]/5'
+                : 'hover:border-[#c3f400]/30'
+            }`}
+          >
+            <div className="flex items-center gap-3.5">
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onNavigateToWorkout();
+                }}
+                className="w-10 h-10 rounded-full bg-[#122131] border border-[#273647] flex items-center justify-center text-[#00dbe9] hover:text-[#c3f400] transition-colors"
+                title="Open Workout"
+              >
+                <Dumbbell className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-base font-semibold text-white">Workout</h4>
+                <p className="text-xs text-[#8e9379]">Complete {workoutInfo.name}</p>
+              </div>
+            </div>
+
+            {/* Checkbox */}
+            <div
+              className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all ${
+                log.tasks.workout
+                  ? 'border-[#c3f400] bg-[#c3f400]/20 shadow-[0_0_10px_rgba(195,244,0,0.4)] text-[#c3f400]'
+                  : 'border-[#8e9379] text-transparent hover:border-[#c3f400]'
+              }`}
+            >
+              <Check className="w-4 h-4 stroke-[3px]" />
+            </div>
+          </div>
+
+          {/* Task 2: Meals */}
+          <div
+            onClick={() => toggleTask('meals')}
+            className={`card-bg rounded-xl p-3.5 flex items-center justify-between cursor-pointer border transition-all ${
+              log.tasks.meals
+                ? 'border-[#c3f400]/40 bg-[#c3f400]/5'
+                : 'hover:border-[#c3f400]/30'
+            }`}
+          >
+            <div className="flex items-center gap-3.5">
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onNavigateToMeals();
+                }}
+                className="w-10 h-10 rounded-full bg-[#122131] border border-[#273647] flex items-center justify-center text-[#00dbe9] hover:text-[#c3f400] transition-colors"
+                title="Open Meals"
+              >
+                <UtensilsCrossed className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-base font-semibold text-white">Meals</h4>
+                <p className="text-xs text-[#8e9379]">Hit protein & calorie goal ({profile.calorieGoal} kcal)</p>
+              </div>
+            </div>
+
+            <div
+              className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all ${
+                log.tasks.meals
+                  ? 'border-[#c3f400] bg-[#c3f400]/20 shadow-[0_0_10px_rgba(195,244,0,0.4)] text-[#c3f400]'
+                  : 'border-[#8e9379] text-transparent hover:border-[#c3f400]'
+              }`}
+            >
+              <Check className="w-4 h-4 stroke-[3px]" />
+            </div>
+          </div>
+
+          {/* Task 3: Water */}
+          <div
+            onClick={() => toggleTask('water')}
+            className={`card-bg rounded-xl p-3.5 flex items-center justify-between cursor-pointer border transition-all ${
+              log.tasks.water
+                ? 'border-[#c3f400]/40 bg-[#c3f400]/5'
+                : 'hover:border-[#c3f400]/30'
+            }`}
+          >
+            <div className="flex items-center gap-3.5">
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onNavigateToMeals();
+                }}
+                className="w-10 h-10 rounded-full bg-[#122131] border border-[#273647] flex items-center justify-center text-[#00dbe9]"
+              >
+                <Droplets className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-base font-semibold text-white">Water</h4>
+                <p className="text-xs text-[#8e9379]">{profile.waterGoalLiters} Liters (8 cups)</p>
+              </div>
+            </div>
+
+            <div
+              className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all ${
+                log.tasks.water
+                  ? 'border-[#c3f400] bg-[#c3f400]/20 shadow-[0_0_10px_rgba(195,244,0,0.4)] text-[#c3f400]'
+                  : 'border-[#8e9379] text-transparent hover:border-[#c3f400]'
+              }`}
+            >
+              <Check className="w-4 h-4 stroke-[3px]" />
+            </div>
+          </div>
+
+          {/* Task 4: Steps */}
+          <div
+            onClick={() => toggleTask('steps')}
+            className={`card-bg rounded-xl p-3.5 flex items-center justify-between cursor-pointer border transition-all ${
+              log.tasks.steps
+                ? 'border-[#c3f400]/40 bg-[#c3f400]/5'
+                : 'hover:border-[#c3f400]/30'
+            }`}
+          >
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-full bg-[#122131] border border-[#273647] flex items-center justify-center text-[#00dbe9]">
+                <Footprints className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-base font-semibold text-white">Steps</h4>
+                <p className="text-xs text-[#8e9379]">
+                  {workoutInfo.type === 'recovery' ? '7,000 – 10,000 steps' : '10,000 steps'}
+                </p>
+              </div>
+            </div>
+
+            <div
+              className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all ${
+                log.tasks.steps
+                  ? 'border-[#c3f400] bg-[#c3f400]/20 shadow-[0_0_10px_rgba(195,244,0,0.4)] text-[#c3f400]'
+                  : 'border-[#8e9379] text-transparent hover:border-[#c3f400]'
+              }`}
+            >
+              <Check className="w-4 h-4 stroke-[3px]" />
+            </div>
+          </div>
+
+          {/* Task 5: Sleep */}
+          <div
+            onClick={() => toggleTask('sleep')}
+            className={`card-bg rounded-xl p-3.5 flex items-center justify-between cursor-pointer border transition-all ${
+              log.tasks.sleep
+                ? 'border-[#c3f400]/40 bg-[#c3f400]/5'
+                : 'hover:border-[#c3f400]/30'
+            }`}
+          >
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-full bg-[#122131] border border-[#273647] flex items-center justify-center text-[#00dbe9]">
+                <Moon className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-base font-semibold text-white">Sleep</h4>
+                <p className="text-xs text-[#8e9379]">8 Hours (Wake: {profile.wakeTime} / Sleep: {profile.sleepTime})</p>
+              </div>
+            </div>
+
+            <div
+              className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all ${
+                log.tasks.sleep
+                  ? 'border-[#c3f400] bg-[#c3f400]/20 shadow-[0_0_10px_rgba(195,244,0,0.4)] text-[#c3f400]'
+                  : 'border-[#8e9379] text-transparent hover:border-[#c3f400]'
+              }`}
+            >
+              <Check className="w-4 h-4 stroke-[3px]" />
+            </div>
+          </div>
+
+          {/* Task 6: Daily Photo */}
+          <div
+            onClick={() => toggleTask('photo')}
+            className={`card-bg rounded-xl p-3.5 flex items-center justify-between cursor-pointer border transition-all ${
+              log.tasks.photo
+                ? 'border-[#c3f400]/40 bg-[#c3f400]/5'
+                : 'hover:border-[#c3f400]/30'
+            }`}
+          >
+            <div className="flex items-center gap-3.5">
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onNavigateToProgress();
+                }}
+                className="w-10 h-10 rounded-full bg-[#122131] border border-[#273647] flex items-center justify-center text-[#00dbe9] hover:text-[#c3f400] transition-colors"
+                title="Open Progress & Checkpoints"
+              >
+                <Camera className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-base font-semibold text-white">Daily Photo</h4>
+                <p className="text-xs text-[#8e9379]">
+                  {[1, 15, 30, 45, 60, 75, 100].includes(log.programDay)
+                    ? '⭐ Official Checkpoint Day! Take 4 Poses'
+                    : 'Track daily visual transformation'}
+                </p>
+              </div>
+            </div>
+
+            <div
+              className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all ${
+                log.tasks.photo
+                  ? 'border-[#c3f400] bg-[#c3f400]/20 shadow-[0_0_10px_rgba(195,244,0,0.4)] text-[#c3f400]'
+                  : 'border-[#8e9379] text-transparent hover:border-[#c3f400]'
+              }`}
+            >
+              <Check className="w-4 h-4 stroke-[3px]" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Motivational Quote */}
+      <section className="py-3 text-center border-t border-[#1E293B]/60">
+        <p className="text-sm font-medium italic text-[#7df4ff]/80">
+          "The hardest part is showing up. You're already ahead."
+        </p>
+      </section>
+    </div>
+  );
+};
