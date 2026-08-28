@@ -21,7 +21,7 @@ import {
   Award,
 } from 'lucide-react';
 import { DailyLog, UserProfile, CheckpointPhoto, PoseType } from '../types';
-import { computeWeightTrends } from '../utils/calculations';
+import { computeWeightTrends, kgToLbs } from '../utils/calculations';
 import { getPhotosFromIDB } from '../utils/indexedDB';
 import { ComparisonSlider } from '../components/progress/ComparisonSlider';
 import { PhotoCheckpointModal } from '../components/progress/PhotoCheckpointModal';
@@ -31,6 +31,7 @@ interface ProgressPageProps {
   profile: UserProfile;
   dailyLogs: Record<string, DailyLog>;
   onSelectDate: (dateStr: string) => void;
+  onUpdateLog: (log: DailyLog) => void;
 }
 
 export const ProgressPage: React.FC<ProgressPageProps> = ({
@@ -38,6 +39,7 @@ export const ProgressPage: React.FC<ProgressPageProps> = ({
   profile,
   dailyLogs,
   onSelectDate,
+  onUpdateLog,
 }) => {
   const [selectedRange, setSelectedRange] = useState<'30' | '100'>('30');
   const [photos, setPhotos] = useState<CheckpointPhoto[]>([]);
@@ -49,6 +51,10 @@ export const ProgressPage: React.FC<ProgressPageProps> = ({
   const refreshPhotos = async () => {
     const loaded = await getPhotosFromIDB();
     setPhotos(loaded);
+    const poses = new Set(loaded.filter((photo) => photo.programDay === log.programDay).map((photo) => photo.pose));
+    if (poses.size === 4 && !log.tasks.photo) {
+      onUpdateLog({ ...log, tasks: { ...log.tasks, photo: true }, photoCheckpointSkipped: false });
+    }
   };
 
   useEffect(() => {
@@ -75,16 +81,18 @@ export const ProgressPage: React.FC<ProgressPageProps> = ({
         ];
 
   // Calculate stats
-  const currentWeightDisplay = log.weightKg || profile.currentWeightKg;
-  const weightDiff = Number((currentWeightDisplay - profile.startWeightKg).toFixed(1));
+  const currentWeightKg = log.weightKg || profile.currentWeightKg;
+  const currentWeightDisplay = profile.unitSystem === 'lbs' ? kgToLbs(currentWeightKg) : currentWeightKg;
+  const startWeightDisplay = profile.unitSystem === 'lbs' ? kgToLbs(profile.startWeightKg) : profile.startWeightKg;
+  const weightDiff = Number((currentWeightDisplay - startWeightDisplay).toFixed(1));
 
   // Compute 7-day weekly avg
-  const allLogs: DailyLog[] = Object.values(dailyLogs);
-  const last7Logs = allLogs.slice(-7);
+  const allLogs: DailyLog[] = (Object.values(dailyLogs) as DailyLog[]).sort((a, b) => a.date.localeCompare(b.date));
+  const last7Logs = allLogs.filter((item) => item.weightKg !== undefined).slice(-7);
   const weeklyAvg =
     last7Logs.length > 0
       ? (
-          last7Logs.reduce((sum: number, l: DailyLog) => sum + (l.weightKg || profile.currentWeightKg), 0) /
+          last7Logs.reduce((sum: number, l: DailyLog) => sum + (profile.unitSystem === 'lbs' ? kgToLbs(l.weightKg as number) : (l.weightKg as number)), 0) /
           last7Logs.length
         ).toFixed(1)
       : currentWeightDisplay.toFixed(1);
@@ -92,34 +100,24 @@ export const ProgressPage: React.FC<ProgressPageProps> = ({
   // Checkpoints list
   const checkpointDays = [1, 15, 30, 45, 60, 75, 100];
 
-  // High-performance placeholder or uploaded photo resolution for comparison
-  const defaultBeforeImg =
-    'https://images.unsplash.com/photo-1583454110551-21f2fa2afe61?auto=format&fit=crop&w=800&q=80';
-  const defaultAfterImg =
-    'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=800&q=80';
+  const day1Photo = photos.find((p) => p.programDay === 1 && p.pose === selectedPose)?.imageDataUrl;
+  const availableCheckpointDays = checkpointDays.filter((day) =>
+    photos.some((photo) => photo.programDay === day && photo.pose === selectedPose)
+  );
+  const latestCheckpointDay = availableCheckpointDays.filter((day) => day > 1).pop();
+  const afterPhoto = latestCheckpointDay
+    ? photos.find((p) => p.programDay === latestCheckpointDay && p.pose === selectedPose)?.imageDataUrl
+    : undefined;
 
-  const day1Photo = photos.find((p) => p.programDay === 1 && p.pose === selectedPose)?.imageDataUrl || defaultBeforeImg;
-  const latestCheckpointDay = checkpointDays.filter((d) => d <= log.programDay).pop() || 1;
-  const afterPhoto =
-    photos.find((p) => p.programDay === latestCheckpointDay && p.pose === selectedPose)?.imageDataUrl ||
-    (latestCheckpointDay > 1 ? defaultAfterImg : defaultBeforeImg);
-
-  // Strength progress mock data based on logged sessions or template
-  const strengthExercisesList = [
-    { id: 'bench_press', name: 'Bench Press' },
-    { id: 'lat_pulldown', name: 'Lat Pulldown' },
-    { id: 'leg_press', name: 'Leg Press' },
-    { id: 'db_shoulder_press', name: 'DB Shoulder Press' },
-  ];
-
-  // Strength progression calculation
-  const strengthPoints = [
-    { day: 'Day 1', weight: 40 },
-    { day: 'Day 15', weight: 42.5 },
-    { day: 'Day 30', weight: 47.5 },
-    { day: 'Day 45', weight: 50 },
-    { day: 'Day 60', weight: 55 },
-  ];
+  const workoutVolumes = allLogs.filter((item) => item.loggedExercises?.length).map((item) => ({
+    date: item.date,
+    volume: (item.loggedExercises || []).flatMap((exercise) => exercise.sets)
+      .filter((set) => set.completed)
+      .reduce((sum, set) => sum + Math.max(0, set.weightKg) * set.reps, 0),
+  })).filter((item) => item.volume > 0);
+  const strengthChange = workoutVolumes.length >= 2
+    ? Math.round(((workoutVolumes.at(-1)!.volume - workoutVolumes[0].volume) / workoutVolumes[0].volume) * 100)
+    : null;
 
   return (
     <div className="space-y-6 pb-28 animate-in fade-in duration-300">
@@ -249,8 +247,8 @@ export const ProgressPage: React.FC<ProgressPageProps> = ({
             <Dumbbell className="w-4 h-4 text-[#c3f400]" /> Strength
           </div>
           <div className="mt-2">
-            <span className="text-2xl font-black font-display text-[#c3f400]">+15%</span>
-            <span className="text-xs text-[#8e9379] ml-1">Working Vol</span>
+            <span className="text-2xl font-black font-display text-[#c3f400]">{strengthChange === null ? '--' : `${strengthChange >= 0 ? '+' : ''}${strengthChange}%`}</span>
+            <span className="text-xs text-[#8e9379] ml-1">Logged Volume</span>
           </div>
         </div>
       </div>
@@ -270,13 +268,17 @@ export const ProgressPage: React.FC<ProgressPageProps> = ({
         <div className="grid grid-cols-10 gap-1.5 sm:gap-2">
           {Array.from({ length: 100 }).map((_, index) => {
             const dayNum = index + 1;
-            const isCompleted = dayNum < log.programDay || (dayNum === log.programDay && log.workoutCompleted);
+            const dayLog = allLogs.find((item) => item.programDay === dayNum);
+            const isCompleted = !!dayLog && (dayLog.workoutCompleted || Object.values(dayLog.tasks).filter(Boolean).length >= 4);
             const isCurrent = dayNum === log.programDay;
             const isFuture = dayNum > log.programDay;
 
             return (
-              <div
+              <button
                 key={dayNum}
+                type="button"
+                disabled={!dayLog}
+                onClick={() => dayLog && onSelectDate(dayLog.date)}
                 title={`Day ${dayNum}${isCompleted ? ' (Completed)' : isCurrent ? ' (Current)' : ' (Upcoming)'}`}
                 className={`aspect-square rounded-md flex items-center justify-center text-[9px] font-bold transition-all cursor-pointer ${
                   isCurrent
@@ -289,7 +291,7 @@ export const ProgressPage: React.FC<ProgressPageProps> = ({
                 }`}
               >
                 {dayNum}
-              </div>
+              </button>
             );
           })}
         </div>
@@ -305,17 +307,17 @@ export const ProgressPage: React.FC<ProgressPageProps> = ({
             <Sparkles className="w-4 h-4 text-[#00eefc]" /> Transform Comparison
           </h3>
           <span className="text-xs font-bold text-[#00eefc]">
-            Day 1 vs Day {latestCheckpointDay}
+            {latestCheckpointDay ? `Day 1 vs Day ${latestCheckpointDay}` : 'Waiting for two checkpoints'}
           </span>
         </div>
 
         {/* Interactive Comparison Slider */}
-        <ComparisonSlider
+        {day1Photo && afterPhoto && latestCheckpointDay ? <ComparisonSlider
           beforeImage={day1Photo}
           afterImage={afterPhoto}
           beforeLabel="Day 1"
           afterLabel={`Day ${latestCheckpointDay}`}
-        />
+        /> : <div className="h-56 rounded-2xl bg-[#010f1f] border border-dashed border-[#273647] flex flex-col items-center justify-center text-center p-6"><Camera className="w-8 h-8 text-[#273647] mb-2" /><p className="text-sm font-bold text-white">Add the same pose at two checkpoints</p><p className="text-xs text-[#8e9379] mt-1">Your private before-and-after slider will appear here.</p></div>}
 
         {/* Pose Selection Filters */}
         <div className="flex justify-center gap-2 pt-1">
@@ -352,7 +354,7 @@ export const ProgressPage: React.FC<ProgressPageProps> = ({
             return (
               <div
                 key={chkDay}
-                onClick={() => setSelectedCheckpointDay(chkDay)}
+                onClick={() => isUnlocked && setSelectedCheckpointDay(chkDay)}
                 className={`flex-shrink-0 w-32 rounded-2xl border p-2 flex flex-col gap-2 cursor-pointer transition-all ${
                   isUnlocked
                     ? 'card-bg hover:border-[#c3f400] hover:scale-105'

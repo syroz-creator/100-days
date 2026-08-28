@@ -1,33 +1,72 @@
 export type UnitSystem = 'kg' | 'lbs';
-
 export type PoseType = 'front' | 'side' | 'back' | 'biceps';
+export type Sex = 'male' | 'female' | 'other' | 'prefer_not';
+export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'very_active';
+export type TrainingExperience = 'beginner' | 'intermediate' | 'advanced';
+export type ReminderType =
+  | 'morningCheckIn'
+  | 'mealReminders'
+  | 'preWorkout'
+  | 'workoutStart'
+  | 'water'
+  | 'bedtime'
+  | 'progressPhotos'
+  | 'weeklyReview';
+
+export interface ReminderSetting {
+  enabled: boolean;
+  time: string;
+}
+
+export type ReminderSettings = Record<ReminderType, ReminderSetting>;
 
 export interface UserProfile {
   name: string;
   age: number;
+  sex: Sex;
   heightCm: number;
   startWeightKg: number;
   currentWeightKg: number;
   targetWeightKg: number;
-  startDate: string; // YYYY-MM-DD
-  wakeTime: string; // e.g. "07:00"
-  sleepTime: string; // e.g. "23:00"
-  workoutStartTime: string; // e.g. "17:00"
-  workoutEndTime: string; // e.g. "18:15"
+  dailyActivity: ActivityLevel;
+  trainingExperience: TrainingExperience;
+  startDate: string;
+  wakeTime: string;
+  schoolStartTime: string;
+  schoolEndTime: string;
+  sleepTime: string;
+  workoutStartTime: string;
+  workoutEndTime: string;
   dietPreference: 'halal' | 'none' | 'vegetarian' | 'vegan' | 'keto' | 'paleo';
-  gymDays: number[]; // 1 = Mon, 2 = Tue, 4 = Thu, 6 = Sat
-  calorieGoal: number; // default 2600
-  proteinGoal: number; // default 100
-  waterGoalLiters: number; // default 2.5
-  stepGoal: number; // default 10000
-  restTimeSeconds: number; // default 90
+  dietaryRestrictions: string[];
+  likedFoods: string[];
+  dislikedFoods: string[];
+  allergies: string[];
+  preferredMeals: number;
+  availableEquipment: string[];
+  gymDays: number[];
+  calorieGoal: number;
+  proteinGoal: number;
+  carbsGoal: number;
+  fatGoal: number;
+  waterGoalLiters: number;
+  sleepGoalHours: number;
+  stepGoal: number;
+  restTimeSeconds: number;
   unitSystem: UnitSystem;
+  reminders: ReminderSettings;
   notifications: {
     workoutReminders: boolean;
     hydrationAlerts: boolean;
     mealPrepPing: boolean;
   };
+  notificationPermission: NotificationPermission | 'unsupported';
+  pushConfigured: boolean;
+  soundEnabled: boolean;
   onboardingCompleted: boolean;
+  planStarted: boolean;
+  planPaused: boolean;
+  pauseStartedAt?: string;
   avatarUrl?: string;
 }
 
@@ -70,9 +109,19 @@ export interface MacroNutrients {
   calories: number;
 }
 
+export interface MealIngredient {
+  name: string;
+  amount: number;
+  unit: 'g' | 'ml' | 'item' | 'slice' | 'tbsp' | 'tsp';
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+}
+
 export interface MealItem {
   id: string;
-  time: string; // e.g. "07:15 AM"
+  time: string;
   name: string;
   mealType: 'Breakfast' | 'Morning Snack' | 'Lunch' | 'Pre-Workout' | 'Dinner' | 'Pre-Sleep' | 'Custom';
   description: string;
@@ -81,6 +130,9 @@ export interface MealItem {
   protein: number;
   carbs: number;
   fat: number;
+  ingredients?: MealIngredient[];
+  preparation?: string;
+  replacement?: string;
   completed: boolean;
 }
 
@@ -93,14 +145,34 @@ export interface DailyTasksChecklist {
   photo: boolean;
 }
 
+export interface BodyMeasurements {
+  heightCm?: number;
+  chestCm?: number;
+  waistCm?: number;
+  hipsCm?: number;
+  armCm?: number;
+  thighCm?: number;
+}
+
+export interface ExerciseRecommendation {
+  action: 'increase' | 'maintain' | 'reduce_weight' | 'reduce_volume';
+  suggestedWeightKg?: number;
+  explanation: string;
+}
+
 export interface DailyLog {
-  date: string; // YYYY-MM-DD
-  programDay: number; // 1 - 100
+  date: string;
+  programDay: number;
   weightKg?: number;
-  waterCups: number; // each cup = 250ml or 1/8th of goal
+  waterCups: number;
   waterTotalLiters: number;
   stepCount: number;
   sleepHours: number;
+  energyLevel?: number;
+  sorenessLevel?: number;
+  checkInStatus?: 'completed' | 'skipped';
+  measurements?: BodyMeasurements;
+  photoCheckpointSkipped?: boolean;
   tasks: DailyTasksChecklist;
   meals: MealItem[];
   workoutCompleted: boolean;
@@ -108,6 +180,9 @@ export interface DailyLog {
   loggedExercises?: {
     exerciseId: string;
     exerciseName: string;
+    difficulty?: number;
+    recommendation?: ExerciseRecommendation;
+    recommendationAccepted?: boolean;
     sets: {
       setNumber: number;
       weightKg: number;
@@ -120,10 +195,10 @@ export interface DailyLog {
 
 export interface CheckpointPhoto {
   id: string;
-  programDay: number; // 1, 15, 30, 45, 60, 75, 100
+  programDay: number;
   date: string;
   pose: PoseType;
-  imageDataUrl?: string; // Stored in IndexedDB, loaded on demand
+  imageDataUrl?: string;
   thumbnailUrl?: string;
   weightKg?: number;
   notes?: string;
@@ -131,7 +206,7 @@ export interface CheckpointPhoto {
 
 export interface AppStateData {
   profile: UserProfile;
-  dailyLogs: Record<string, DailyLog>; // key: YYYY-MM-DD
+  dailyLogs: Record<string, DailyLog>;
   activeProgramDay: number;
   lastUpdated: string;
 }

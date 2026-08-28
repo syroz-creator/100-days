@@ -20,10 +20,12 @@ import confetti from 'canvas-confetti';
 import { DailyLog, UserProfile, WorkoutTemplate, WorkoutSplitId, Exercise, ExerciseSet } from '../types';
 import { WORKOUT_TEMPLATES } from '../data/initialData';
 import { playTimerCompleteSound, playClickBeep } from '../utils/sound';
+import { recommendNextExercise } from '../utils/calculations';
 
 interface WorkoutPageProps {
   log: DailyLog;
   profile: UserProfile;
+  dailyLogs: Record<string, DailyLog>;
   onUpdateLog: (updatedLog: DailyLog) => void;
   onNavigateToDashboard: () => void;
 }
@@ -31,11 +33,18 @@ interface WorkoutPageProps {
 export const WorkoutPage: React.FC<WorkoutPageProps> = ({
   log,
   profile,
+  dailyLogs,
   onUpdateLog,
   onNavigateToDashboard,
 }) => {
   const currentSplitId: WorkoutSplitId = log.workoutSplitId || 'upper_a';
   const template = WORKOUT_TEMPLATES[currentSplitId] || WORKOUT_TEMPLATES.upper_a;
+
+  const getAcceptedWeight = (exerciseId: string) => (Object.values(dailyLogs) as DailyLog[])
+    .filter((item) => item.date < log.date)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .flatMap((item) => item.loggedExercises || [])
+    .find((item) => item.exerciseId === exerciseId && item.recommendationAccepted)?.recommendation?.suggestedWeightKg;
 
   // Initialize active exercises state from log or template
   const [exercises, setExercises] = useState<Exercise[]>(() => {
@@ -59,12 +68,21 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
         return templateEx;
       });
     }
-    return template.exercises;
+    return template.exercises.map((exercise) => {
+      const acceptedWeight = getAcceptedWeight(exercise.id);
+      return acceptedWeight === undefined ? exercise : {
+        ...exercise,
+        sets: exercise.sets.map((set) => ({ ...set, weightKg: acceptedWeight, prevWeightKg: set.weightKg })),
+      };
+    });
   });
 
   const [activeExerciseIndex, setActiveExerciseIndex] = useState(0);
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [showTips, setShowTips] = useState<Record<string, boolean>>({});
+  const [exerciseDifficulty, setExerciseDifficulty] = useState<Record<string, number>>(() =>
+    Object.fromEntries((log.loggedExercises || []).map((exercise) => [exercise.exerciseId, exercise.difficulty || 3]))
+  );
 
   // Rest Timer State
   const [timerSecondsLeft, setTimerSecondsLeft] = useState(profile.restTimeSeconds || 90);
@@ -72,18 +90,27 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Sync exercises to parent log
-  const syncToLog = (updatedExList: Exercise[]) => {
+  const syncToLog = (updatedExList: Exercise[], difficulties = exerciseDifficulty) => {
     setExercises(updatedExList);
-    const loggedExercises = updatedExList.map((ex) => ({
+    const loggedExercises = updatedExList.map((ex) => {
+      const existing = log.loggedExercises?.find((item) => item.exerciseId === ex.id);
+      const difficulty = difficulties[ex.id] || existing?.difficulty || 3;
+      const isFinished = ex.sets.every((set) => set.completed);
+      return {
       exerciseId: ex.id,
       exerciseName: ex.name,
+      difficulty,
+      recommendation: isFinished
+        ? recommendNextExercise(ex, difficulty, log.sorenessLevel)
+        : existing?.recommendation,
+      recommendationAccepted: existing?.recommendationAccepted || false,
       sets: ex.sets.map((s) => ({
         setNumber: s.setNumber,
         weightKg: s.weightKg,
         reps: s.reps,
         completed: s.completed,
       })),
-    }));
+    };});
 
     const allCompleted = updatedExList.every((ex) => ex.sets.every((s) => s.completed));
 
@@ -96,6 +123,21 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
         workout: allCompleted || log.tasks.workout,
       },
     });
+  };
+
+  const handleDifficulty = (exerciseId: string, value: number) => {
+    const updated = { ...exerciseDifficulty, [exerciseId]: value };
+    setExerciseDifficulty(updated);
+    syncToLog(exercises, updated);
+  };
+
+  const acceptRecommendation = (exerciseId: string) => {
+    const loggedExercises = (log.loggedExercises || []).map((exercise) =>
+      exercise.exerciseId === exerciseId
+        ? { ...exercise, recommendationAccepted: true }
+        : exercise
+    );
+    onUpdateLog({ ...log, loggedExercises });
   };
 
   // Timer Tick
@@ -196,15 +238,6 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
       sets: ex.sets.map((s) => ({ ...s, completed: true })),
     }));
     syncToLog(updated);
-
-    onUpdateLog({
-      ...log,
-      workoutCompleted: true,
-      tasks: {
-        ...log.tasks,
-        workout: true,
-      },
-    });
   };
 
   // Progressive overload check: Check if all sets hit maximum target rep range
@@ -309,7 +342,9 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
           if (isFocusMode && exIndex !== activeExerciseIndex) return null;
 
           const isCurrentActive = exIndex === activeExerciseIndex;
-          const isOverloadReady = checkProgressiveOverload(ex);
+          const loggedExercise = log.loggedExercises?.find((item) => item.exerciseId === ex.id);
+          const recommendation = loggedExercise?.recommendation;
+          const exerciseFinished = ex.sets.every((set) => set.completed);
 
           return (
             <div
@@ -366,18 +401,10 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
                   </div>
                 )}
 
-                {/* Progressive Overload Advisor Badge */}
-                {isOverloadReady && (
-                  <div className="mt-3 bg-[#c3f400]/15 border border-[#c3f400]/40 rounded-xl p-3 text-xs text-white flex items-start gap-2.5 animate-in fade-in">
-                    <Zap className="w-4 h-4 text-[#c3f400] shrink-0 mt-0.5" />
-                    <div>
-                      <span className="font-bold text-[#c3f400] block uppercase tracking-wider">
-                        Progressive Overload Reached!
-                      </span>
-                      <span className="text-[#d4e4fa] text-[11px]">
-                        You completed all sets at the top of the rep target ({ex.maxReps} reps). Next session, try adding +1.25kg to +2.5kg!
-                      </span>
-                    </div>
+                {exerciseFinished && (
+                  <div className="mt-3 bg-[#122131] border border-[#273647] rounded-xl p-3 space-y-3">
+                    <div><p className="text-[11px] font-bold text-[#8e9379] uppercase mb-2">Perceived difficulty</p><div className="grid grid-cols-5 gap-1.5">{[1,2,3,4,5].map((value) => <button key={value} onClick={() => handleDifficulty(ex.id, value)} className={`h-8 rounded-lg border text-xs font-bold ${(exerciseDifficulty[ex.id] || 3) === value ? 'bg-[#00eefc] border-[#00eefc] text-[#050810]' : 'bg-[#010f1f] border-[#273647] text-[#94A3B8]'}`}>{value}</button>)}</div></div>
+                    {recommendation && <div className="flex items-start gap-2"><Zap className="w-4 h-4 text-[#c3f400] shrink-0 mt-0.5" /><div className="flex-1"><p className="text-xs font-bold text-[#c3f400] capitalize">{recommendation.action.replace('_', ' ')} next session{recommendation.suggestedWeightKg !== undefined ? ` at ${recommendation.suggestedWeightKg} kg` : ''}</p><p className="text-[11px] text-[#94A3B8] mt-0.5">{recommendation.explanation}</p></div>{!loggedExercise?.recommendationAccepted ? <button onClick={() => acceptRecommendation(ex.id)} className="px-2.5 py-1.5 rounded-lg bg-[#c3f400] text-[#050810] text-[10px] font-bold">Apply</button> : <span className="text-[10px] text-[#c3f400] font-bold">APPLIED</span>}</div>}
                   </div>
                 )}
 

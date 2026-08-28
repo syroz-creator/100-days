@@ -1,18 +1,206 @@
-import { DailyLog, UnitSystem } from '../types';
+import { DailyLog, Exercise, ExerciseRecommendation, UserProfile, UnitSystem } from '../types';
 
 export function calculateProgramDay(startDateStr: string, targetDateStr?: string): number {
   try {
+    if (!startDateStr) return 1;
     const start = new Date(startDateStr + 'T00:00:00');
     const target = targetDateStr ? new Date(targetDateStr + 'T00:00:00') : new Date();
     target.setHours(0, 0, 0, 0);
     start.setHours(0, 0, 0, 0);
 
+    if (Number.isNaN(start.getTime()) || Number.isNaN(target.getTime())) return 1;
     const diffTime = target.getTime() - start.getTime();
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
     return Math.max(1, Math.min(100, diffDays));
   } catch {
     return 1;
   }
+}
+
+export const CHECKPOINT_DAYS = [1, 15, 30, 45, 60, 75, 100];
+
+export interface NutritionTrendAnalysis {
+  action: 'insufficient_data' | 'maintain' | 'increase' | 'decrease';
+  suggestedChange: number;
+  message: string;
+}
+
+export interface CoachPlan {
+  bmi: number;
+  maintenanceCalories: number;
+  calorieTarget: number;
+  proteinGrams: number;
+  carbsGrams: number;
+  fatGrams: number;
+  waterLiters: number;
+  sleepHours: number;
+  weeklyGainMinKg: number;
+  weeklyGainMaxKg: number;
+  kilogramsRemaining: number;
+  estimatedWeeks: number;
+  recoveryStatus: 'ready' | 'moderate' | 'recover';
+  todayRecommendation: string;
+  nutritionTrend: NutritionTrendAnalysis;
+}
+
+const ACTIVITY_MULTIPLIERS: Record<UserProfile['dailyActivity'], number> = {
+  sedentary: 1.2,
+  light: 1.375,
+  moderate: 1.55,
+  very_active: 1.725,
+};
+
+export function analyzeNutritionTrend(
+  dailyLogs: Record<string, DailyLog>,
+  profile: UserProfile
+): NutritionTrendAnalysis {
+  const weights = Object.values(dailyLogs)
+    .filter((log) => typeof log.weightKg === 'number')
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (weights.length < 15) {
+    return {
+      action: 'insufficient_data',
+      suggestedChange: 0,
+      message: 'Keep the current calorie target while the coach builds at least two weeks of weight trends.',
+    };
+  }
+
+  const byDate = new Map(weights.map((log) => [log.date, log.weightKg as number]));
+  const dates = [...byDate.keys()];
+  const weeklyAverage = (endIndex: number) => {
+    const values = dates
+      .slice(Math.max(0, endIndex - 6), endIndex + 1)
+      .map((date) => byDate.get(date))
+      .filter((value): value is number => value !== undefined);
+    return values.length >= 4 ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+  };
+  const latest = weeklyAverage(dates.length - 1);
+  const previous = weeklyAverage(dates.length - 8);
+  const earlier = weeklyAverage(dates.length - 15);
+  if (latest === null || previous === null || earlier === null) {
+    return {
+      action: 'insufficient_data',
+      suggestedChange: 0,
+      message: 'More consistent weigh-ins are needed before suggesting a calorie change.',
+    };
+  }
+
+  const gainOne = previous - earlier;
+  const gainTwo = latest - previous;
+  const upperGain = Math.max(0.25, profile.currentWeightKg * 0.005);
+  if (gainOne <= 0.1 && gainTwo <= 0.1) {
+    return {
+      action: 'increase',
+      suggestedChange: 175,
+      message: 'Your seven-day average was flat for two trends; consider adding 175 estimated kcal per day.',
+    };
+  }
+  if (gainOne > upperGain && gainTwo > upperGain) {
+    return {
+      action: 'decrease',
+      suggestedChange: -150,
+      message: 'Your seven-day average rose faster than the suggested range for two trends; consider reducing 150 estimated kcal per day.',
+    };
+  }
+  return {
+    action: 'maintain',
+    suggestedChange: 0,
+    message: 'Your weight trend supports maintaining the current estimated calorie target.',
+  };
+}
+
+export function calculateCoachPlan(
+  profile: UserProfile,
+  dailyLogs: Record<string, DailyLog>,
+  currentLog?: DailyLog
+): CoachPlan {
+  const weight = currentLog?.weightKg || profile.currentWeightKg || profile.startWeightKg;
+  const heightMeters = Math.max(1, profile.heightCm / 100);
+  const bmi = weight / (heightMeters * heightMeters);
+  const sexOffset = profile.sex === 'male' ? 5 : profile.sex === 'female' ? -161 : -78;
+  const bmr = 10 * weight + 6.25 * profile.heightCm - 5 * profile.age + sexOffset;
+  const maintenance = Math.round((bmr * ACTIVITY_MULTIPLIERS[profile.dailyActivity]) / 25) * 25;
+  const surplus = profile.age < 18 ? 175 : 250;
+  const calorieTarget = Math.max(1600, Math.min(4000, maintenance + surplus));
+  const protein = Math.round(weight * (profile.age < 18 ? 1.6 : 1.8));
+  const fat = Math.round(weight * 0.9);
+  const carbs = Math.max(130, Math.round((calorieTarget - protein * 4 - fat * 9) / 4));
+  const water = Number(Math.max(2, Math.min(4, weight * 0.035)).toFixed(1));
+  const sleep = profile.age < 18 ? 9 : 8;
+  const weeklyGainMin = Number(Math.max(0.1, weight * 0.0025).toFixed(2));
+  const weeklyGainMax = Number(Math.max(0.2, weight * 0.005).toFixed(2));
+  const remaining = Number(Math.max(0, profile.targetWeightKg - weight).toFixed(1));
+  const estimatedWeeks = remaining === 0
+    ? 0
+    : Math.ceil(remaining / ((weeklyGainMin + weeklyGainMax) / 2));
+  const sleepHours = currentLog?.sleepHours ?? sleep;
+  const energy = currentLog?.energyLevel ?? 3;
+  const soreness = currentLog?.sorenessLevel ?? 3;
+  const recoveryScore = sleepHours / sleep + energy / 5 - soreness / 5;
+  const recoveryStatus = recoveryScore < 0.8 ? 'recover' : recoveryScore < 1.25 ? 'moderate' : 'ready';
+  const nutritionTrend = analyzeNutritionTrend(dailyLogs, profile);
+  const todayRecommendation = recoveryStatus === 'recover'
+    ? 'Recovery is limited today. Keep weights steady, use clean reps, and reduce one set if fatigue persists.'
+    : recoveryStatus === 'moderate'
+      ? 'Train as planned, keep two or three good reps in reserve, and maintain current weights.'
+      : 'Readiness looks good. Follow the planned sets and only increase weight where every rep stays controlled.';
+
+  return {
+    bmi: Number(bmi.toFixed(1)),
+    maintenanceCalories: maintenance,
+    calorieTarget,
+    proteinGrams: protein,
+    carbsGrams: carbs,
+    fatGrams: fat,
+    waterLiters: water,
+    sleepHours: sleep,
+    weeklyGainMinKg: weeklyGainMin,
+    weeklyGainMaxKg: weeklyGainMax,
+    kilogramsRemaining: remaining,
+    estimatedWeeks,
+    recoveryStatus,
+    todayRecommendation,
+    nutritionTrend,
+  };
+}
+
+export function recommendNextExercise(
+  exercise: Exercise,
+  difficulty: number,
+  sorenessLevel = 3
+): ExerciseRecommendation {
+  const completed = exercise.sets.filter((set) => set.completed);
+  const currentWeight = completed.at(-1)?.weightKg ?? exercise.sets[0]?.weightKg ?? 0;
+  const smallestIncrease = currentWeight < 20 ? 1 : 2.5;
+  const allAtTop = completed.length >= exercise.targetSets && completed.every((set) => set.reps >= exercise.maxReps);
+  const repeatedlyBelowMinimum = completed.length >= 2 && completed.filter((set) => set.reps < exercise.minReps).length >= 2;
+
+  if (sorenessLevel >= 5 || difficulty >= 5) {
+    return {
+      action: 'reduce_volume',
+      suggestedWeightKg: currentWeight,
+      explanation: 'Fatigue is unusually high, so keep the weight and remove one set next session if recovery remains poor.',
+    };
+  }
+  if (repeatedlyBelowMinimum) {
+    return {
+      action: 'reduce_weight',
+      suggestedWeightKg: Math.max(0, Number((currentWeight * 0.95).toFixed(1))),
+      explanation: 'Minimum reps were missed repeatedly, so a small weight reduction should restore clean technique.',
+    };
+  }
+  if (allAtTop && difficulty <= 4) {
+    return {
+      action: 'increase',
+      suggestedWeightKg: Number((currentWeight + smallestIncrease).toFixed(1)),
+      explanation: 'Every set reached the top of the rep range, so use the smallest available increase next time.',
+    };
+  }
+  return {
+    action: 'maintain',
+    suggestedWeightKg: currentWeight,
+    explanation: 'Keep this weight until all planned sets reach the rep range with controlled form.',
+  };
 }
 
 export function formatDateToISO(date: Date): string {

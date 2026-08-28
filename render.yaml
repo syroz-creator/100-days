@@ -1,0 +1,30 @@
+services:
+  - type: web
+    runtime: static
+    name: 100-days
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_PUSH_API_URL
+        sync: false
+  - type: web
+    runtime: node
+    name: 100-days-push
+    buildCommand: npm ci
+    startCommand: npm run start:push
+    healthCheckPath: /health
+    envVars:
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
+      - key: PUSH_ALLOWED_ORIGIN
+        sync: false
+      - key: PUSH_DATA_FILE
+        value: /var/data/push-subscriptions.json
+    disk:
+      name: push-data
+      mountPath: /var/data
+      sizeGB: 1

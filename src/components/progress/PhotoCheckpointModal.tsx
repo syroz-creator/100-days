@@ -100,17 +100,18 @@ export const PhotoCheckpointModal: React.FC<PhotoCheckpointModalProps> = ({
           </div>
           <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px] text-[#94A3B8]">
             <li className="flex items-center gap-1.5">
-              <CheckCircle className="w-3.5 h-3.5 text-[#00eefc]" /> Same lighting & room
+              <CheckCircle className="w-3.5 h-3.5 text-[#00eefc]" /> Phone vertical, rear camera at 1×
             </li>
             <li className="flex items-center gap-1.5">
-              <CheckCircle className="w-3.5 h-3.5 text-[#00eefc]" /> Distance ~2m (chest height)
+              <CheckCircle className="w-3.5 h-3.5 text-[#00eefc]" /> Level at belly-button height
             </li>
             <li className="flex items-center gap-1.5">
-              <CheckCircle className="w-3.5 h-3.5 text-[#00eefc]" /> Morning (empty stomach)
+              <CheckCircle className="w-3.5 h-3.5 text-[#00eefc]" /> Stand 2.5-3 metres away
             </li>
             <li className="flex items-center gap-1.5">
-              <CheckCircle className="w-3.5 h-3.5 text-[#00eefc]" /> Same posture for comparisons
+              <CheckCircle className="w-3.5 h-3.5 text-[#00eefc]" /> Same room, light, clothing, position
             </li>
+            <li className="flex items-center gap-1.5 sm:col-span-2"><CheckCircle className="w-3.5 h-3.5 text-[#00eefc]" /> Morning, after bathroom and before eating</li>
           </ul>
         </div>
 
@@ -159,6 +160,7 @@ export const PhotoCheckpointModal: React.FC<PhotoCheckpointModalProps> = ({
                     <input
                       type="file"
                       accept="image/*"
+                      capture="environment"
                       className="hidden"
                       onChange={handleFileUpload}
                     />
@@ -175,6 +177,7 @@ export const PhotoCheckpointModal: React.FC<PhotoCheckpointModalProps> = ({
                 <input
                   type="file"
                   accept="image/*"
+                  capture="environment"
                   className="hidden"
                   onChange={handleFileUpload}
                 />

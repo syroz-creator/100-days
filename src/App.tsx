@@ -7,6 +7,7 @@ import { WorkoutPage } from './pages/WorkoutPage';
 import { MealsPage } from './pages/MealsPage';
 import { ProgressPage } from './pages/ProgressPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { DailyCheckInModal } from './components/checkin/DailyCheckInModal';
 import {
   loadAppState,
   saveUserProfile,
@@ -15,6 +16,8 @@ import {
 } from './utils/storage';
 import { calculateProgramDay, calculateStreak, formatDateToISO } from './utils/calculations';
 import { DailyLog, UserProfile } from './types';
+import { createDefaultDayLog } from './data/initialData';
+import { registerPushNotifications } from './utils/notifications';
 
 export default function App() {
   const [appState, setAppState] = useState(() => loadAppState());
@@ -23,7 +26,14 @@ export default function App() {
   );
   const [activeTab, setActiveTab] = useState<NavTab>('today');
   const todayDate = formatDateToISO(new Date());
-  const selectedProgramDay = calculateProgramDay(appState.profile.startDate, selectedDate);
+  const selectedProgramDay = appState.profile.planStarted
+    ? calculateProgramDay(
+        appState.profile.startDate,
+        appState.profile.planPaused && appState.profile.pauseStartedAt && selectedDate >= appState.profile.pauseStartedAt
+          ? appState.profile.pauseStartedAt
+          : selectedDate
+      )
+    : 1;
 
   // Load and refresh state whenever selectedDate or storage changes
   const reloadState = () => {
@@ -45,6 +55,12 @@ export default function App() {
   // Handle profile updates
   const handleUpdateProfile = (updatedProfile: UserProfile) => {
     saveUserProfile(updatedProfile);
+    if (updatedProfile.pushConfigured) {
+      registerPushNotifications(updatedProfile).catch(() => {
+        saveUserProfile({ ...updatedProfile, pushConfigured: false });
+        reloadState();
+      });
+    }
     reloadState();
   };
 
@@ -56,6 +72,37 @@ export default function App() {
     reloadState();
     setSelectedDate(formatDateToISO(new Date()));
     setActiveTab('today');
+  };
+
+  const handleStartPlan = () => {
+    const confirmed = window.confirm(
+      'Make today Day 1? This permanently sets the starting date for your 100-day plan.'
+    );
+    if (!confirmed) return;
+    const startDate = formatDateToISO(new Date());
+    const startedProfile: UserProfile = {
+      ...appState.profile,
+      startDate,
+      planStarted: true,
+      planPaused: false,
+      pauseStartedAt: undefined,
+    };
+    saveUserProfile(startedProfile);
+    if (startedProfile.pushConfigured) {
+      registerPushNotifications(startedProfile).catch(() => {
+        saveUserProfile({ ...startedProfile, pushConfigured: false });
+      });
+    }
+    saveDailyLog(createDefaultDayLog(startDate, 1, startedProfile));
+    setSelectedDate(startDate);
+    setActiveTab('today');
+    reloadState();
+  };
+
+  const handleSaveCheckIn = (updatedLog: DailyLog, updatedProfile: UserProfile) => {
+    saveUserProfile(updatedProfile);
+    saveDailyLog(updatedLog);
+    reloadState();
   };
 
   // Handle daily log updates
@@ -98,12 +145,14 @@ export default function App() {
               <TodayDashboard
                 log={currentLog}
                 profile={appState.profile}
+                dailyLogs={appState.dailyLogs}
                 streak={streak}
                 onUpdateLog={handleUpdateLog}
                 onUpdateProfile={handleUpdateProfile}
                 onNavigateToWorkout={() => setActiveTab('workout')}
                 onNavigateToMeals={() => setActiveTab('meals')}
                 onNavigateToProgress={() => setActiveTab('progress')}
+                onStartPlan={handleStartPlan}
               />
             )}
 
@@ -111,6 +160,7 @@ export default function App() {
               <WorkoutPage
                 log={currentLog}
                 profile={appState.profile}
+                dailyLogs={appState.dailyLogs}
                 onUpdateLog={handleUpdateLog}
                 onNavigateToDashboard={() => setActiveTab('today')}
               />
@@ -131,6 +181,7 @@ export default function App() {
                 log={currentLog}
                 profile={appState.profile}
                 dailyLogs={appState.dailyLogs}
+                onUpdateLog={handleUpdateLog}
                 onSelectDate={(d) => {
                   setSelectedDate(d);
                   setActiveTab('today');
@@ -160,6 +211,22 @@ export default function App() {
           onComplete={handleCompleteOnboarding}
         />
       )}
+
+      {appState.profile.onboardingCompleted &&
+        appState.profile.planStarted &&
+        !appState.profile.planPaused &&
+        selectedDate === todayDate &&
+        !currentLog.checkInStatus && (
+          <DailyCheckInModal
+            log={currentLog}
+            profile={appState.profile}
+            onSave={handleSaveCheckIn}
+            onSkip={(skippedLog) => {
+              saveDailyLog(skippedLog);
+              reloadState();
+            }}
+          />
+        )}
     </div>
   );
 }

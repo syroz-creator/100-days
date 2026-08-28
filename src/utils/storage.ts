@@ -1,5 +1,11 @@
 import { AppStateData, DailyLog, UserProfile } from '../types';
-import { DEFAULT_PROFILE, createDefaultDayLog, WORKOUT_TEMPLATES } from '../data/initialData';
+import {
+  DEFAULT_PROFILE,
+  DEFAULT_REMINDERS,
+  buildDailyMealPlan,
+  createDefaultDayLog,
+  WORKOUT_TEMPLATES,
+} from '../data/initialData';
 import { calculateProgramDay, formatDateToISO } from './calculations';
 import { getPhotosFromIDB, clearAllPhotosFromIDB, savePhotoToIDB } from './indexedDB';
 
@@ -11,15 +17,51 @@ function normalizeProfile(
   profile?: Partial<UserProfile>,
   onboardingCompletedOverride?: boolean
 ): UserProfile {
+  const onboardingCompleted = onboardingCompletedOverride ?? profile?.onboardingCompleted === true;
   return {
     ...DEFAULT_PROFILE,
     ...profile,
+    dietaryRestrictions: profile?.dietaryRestrictions || DEFAULT_PROFILE.dietaryRestrictions,
+    likedFoods: profile?.likedFoods || DEFAULT_PROFILE.likedFoods,
+    dislikedFoods: profile?.dislikedFoods || [],
+    allergies: profile?.allergies || [],
+    availableEquipment: profile?.availableEquipment || DEFAULT_PROFILE.availableEquipment,
     notifications: {
       ...DEFAULT_PROFILE.notifications,
       ...profile?.notifications,
     },
-    onboardingCompleted: onboardingCompletedOverride ?? profile?.onboardingCompleted === true,
+    reminders: Object.fromEntries(
+      Object.entries(DEFAULT_REMINDERS).map(([key, value]) => [
+        key,
+        { ...value, ...profile?.reminders?.[key as keyof typeof DEFAULT_REMINDERS] },
+      ])
+    ) as UserProfile['reminders'],
+    onboardingCompleted,
+    planStarted: profile?.planStarted ?? onboardingCompleted,
+    planPaused: profile?.planPaused === true,
   };
+}
+
+function normalizeDailyLogs(
+  logs: Record<string, DailyLog>,
+  profile: UserProfile
+): Record<string, DailyLog> {
+  const defaultMeals = buildDailyMealPlan(profile);
+  return Object.fromEntries(
+    Object.entries(logs).map(([date, log]) => [
+      date,
+      {
+        ...log,
+        meals: (log.meals || defaultMeals).map((meal, index) => ({
+          ...defaultMeals[index],
+          ...meal,
+          ingredients: meal.ingredients || defaultMeals[index]?.ingredients,
+          preparation: meal.preparation || defaultMeals[index]?.preparation,
+          replacement: meal.replacement || defaultMeals[index]?.replacement,
+        })),
+      },
+    ])
+  );
 }
 
 export function getInitialAppState(): AppStateData {
@@ -30,12 +72,14 @@ export function getInitialAppState(): AppStateData {
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<AppStateData>;
       const profile = normalizeProfile(parsed.profile);
-      const dailyLogs = parsed.dailyLogs || {};
+      const dailyLogs = normalizeDailyLogs(parsed.dailyLogs || {}, profile);
 
       if (profile.startDate) {
-        const currentProgramDay = calculateProgramDay(profile.startDate, todayISO);
+        const currentProgramDay = profile.planStarted
+          ? calculateProgramDay(profile.startDate, profile.planPaused && profile.pauseStartedAt ? profile.pauseStartedAt : todayISO)
+          : 0;
         if (!dailyLogs[todayISO]) {
-          dailyLogs[todayISO] = createDefaultDayLog(todayISO, currentProgramDay);
+          dailyLogs[todayISO] = createDefaultDayLog(todayISO, currentProgramDay || 1, profile);
         }
         return {
           profile,
@@ -51,12 +95,14 @@ export function getInitialAppState(): AppStateData {
       const storedProfile = JSON.parse(rawProfile) as Partial<UserProfile>;
       const onboardingCompleted = localStorage.getItem(ONBOARDING_COMPLETED_KEY) === 'true';
       const profile = normalizeProfile(storedProfile, onboardingCompleted);
-      const currentProgramDay = calculateProgramDay(profile.startDate, todayISO);
+      const currentProgramDay = profile.planStarted
+        ? calculateProgramDay(profile.startDate, profile.planPaused && profile.pauseStartedAt ? profile.pauseStartedAt : todayISO)
+        : 0;
 
       return {
         profile,
         dailyLogs: {
-          [todayISO]: createDefaultDayLog(todayISO, currentProgramDay),
+          [todayISO]: createDefaultDayLog(todayISO, currentProgramDay || 1, profile),
         },
         activeProgramDay: currentProgramDay,
         lastUpdated: new Date().toISOString(),
@@ -68,14 +114,14 @@ export function getInitialAppState(): AppStateData {
 
   // Fresh initialization
   const defaultDay = 1;
-  const initialLog = createDefaultDayLog(todayISO, defaultDay);
+  const initialLog = createDefaultDayLog(todayISO, defaultDay, DEFAULT_PROFILE);
 
   const freshState: AppStateData = {
     profile: { ...DEFAULT_PROFILE, startDate: todayISO },
     dailyLogs: {
       [todayISO]: initialLog,
     },
-    activeProgramDay: defaultDay,
+    activeProgramDay: 0,
     lastUpdated: new Date().toISOString(),
   };
 
@@ -135,8 +181,11 @@ export function getOrCreateDailyLog(
   if (logs[dateStr]) {
     return logs[dateStr];
   }
-  const programDay = calculateProgramDay(startDateStr, dateStr);
-  return createDefaultDayLog(dateStr, programDay);
+  const effectiveDate = maybeProfile?.planPaused && maybeProfile.pauseStartedAt && dateStr >= maybeProfile.pauseStartedAt
+    ? maybeProfile.pauseStartedAt
+    : dateStr;
+  const programDay = maybeProfile?.planStarted === false ? 1 : calculateProgramDay(startDateStr, effectiveDate);
+  return createDefaultDayLog(dateStr, programDay, maybeProfile || DEFAULT_PROFILE);
 }
 
 export async function exportAppDataAsJSON(): Promise<void> {
@@ -279,5 +328,28 @@ export async function resetAllAppData(): Promise<void> {
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(PROFILE_STORAGE_KEY);
   localStorage.removeItem(ONBOARDING_COMPLETED_KEY);
+  await clearAllPhotosFromIDB();
+}
+
+export async function restartPlanData(profile: UserProfile): Promise<void> {
+  const today = formatDateToISO(new Date());
+  const restartedProfile = normalizeProfile({
+    ...profile,
+    startDate: today,
+    currentWeightKg: profile.startWeightKg,
+    planStarted: true,
+    planPaused: false,
+    pauseStartedAt: undefined,
+    onboardingCompleted: true,
+  });
+  const state: AppStateData = {
+    profile: restartedProfile,
+    dailyLogs: {
+      [today]: createDefaultDayLog(today, 1, restartedProfile),
+    },
+    activeProgramDay: 1,
+    lastUpdated: new Date().toISOString(),
+  };
+  saveAppState(state);
   await clearAllPhotosFromIDB();
 }

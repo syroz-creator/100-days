@@ -17,36 +17,44 @@ import { DailyLog, UserProfile, WorkoutSplitId } from '../types';
 import { formatWeight } from '../utils/calculations';
 import { WORKOUT_TEMPLATES } from '../data/initialData';
 import { playClickBeep } from '../utils/sound';
+import { SilentCoachPanel } from '../components/coach/SilentCoachPanel';
 
 interface TodayDashboardProps {
   log: DailyLog;
   profile: UserProfile;
+  dailyLogs: Record<string, DailyLog>;
   streak: number;
   onUpdateLog: (updatedLog: DailyLog) => void;
   onUpdateProfile: (updatedProfile: UserProfile) => void;
   onNavigateToWorkout: () => void;
   onNavigateToMeals: () => void;
   onNavigateToProgress: () => void;
+  onStartPlan: () => void;
 }
 
 export const TodayDashboard: React.FC<TodayDashboardProps> = ({
   log,
   profile,
+  dailyLogs,
   streak,
   onUpdateLog,
   onUpdateProfile,
   onNavigateToWorkout,
   onNavigateToMeals,
   onNavigateToProgress,
+  onStartPlan,
 }) => {
   const [isEditingWeight, setIsEditingWeight] = useState(false);
   const [tempWeight, setTempWeight] = useState(log.weightKg?.toString() || profile.currentWeightKg.toString());
 
   const currentSplitId = log.workoutSplitId || 'upper_a';
   const workoutInfo = WORKOUT_TEMPLATES[currentSplitId] || WORKOUT_TEMPLATES.upper_a;
+  const isPhotoCheckpoint = [1, 15, 30, 45, 60, 75, 100].includes(log.programDay);
 
   // Calculate task completion percentage (6 items)
-  const taskKeys: (keyof typeof log.tasks)[] = ['workout', 'meals', 'water', 'steps', 'sleep', 'photo'];
+  const taskKeys: (keyof typeof log.tasks)[] = isPhotoCheckpoint
+    ? ['workout', 'meals', 'water', 'steps', 'sleep', 'photo']
+    : ['workout', 'meals', 'water', 'steps', 'sleep'];
   const completedCount = taskKeys.filter((k) => log.tasks[k]).length;
   const completionPercentage = Math.round((completedCount / taskKeys.length) * 100);
 
@@ -102,12 +110,19 @@ export const TodayDashboard: React.FC<TodayDashboardProps> = ({
       {/* Day Headline */}
       <div className="text-center pt-2">
         <h2 className="text-4xl md:text-5xl font-extrabold font-display text-white tracking-tighter">
-          Day {log.programDay} of 100
+          {profile.planStarted ? `Day ${log.programDay} of 100` : 'Plan Preview'}
         </h2>
         <p className="text-sm md:text-base text-[#94A3B8] mt-1.5 font-medium">
-          {getDaySubtitle(log.programDay)}
+          {profile.planStarted ? getDaySubtitle(log.programDay) : 'Explore everything before starting the countdown.'}
         </p>
       </div>
+
+      <SilentCoachPanel
+        profile={profile}
+        log={log}
+        dailyLogs={dailyLogs}
+        onStartPlan={onStartPlan}
+      />
 
       {/* Hero Circular Progress Ring */}
       <div className="flex flex-col items-center justify-center my-4">
@@ -143,7 +158,7 @@ export const TodayDashboard: React.FC<TodayDashboardProps> = ({
               {completionPercentage}%
             </span>
             <span className="text-[10px] text-[#94A3B8] font-bold uppercase tracking-widest mt-0.5">
-              {completedCount} of 6 Tasks
+              {completedCount} of {taskKeys.length} Tasks
             </span>
           </div>
         </div>
@@ -421,46 +436,7 @@ export const TodayDashboard: React.FC<TodayDashboardProps> = ({
             </div>
           </div>
 
-          {/* Task 6: Daily Photo */}
-          <div
-            onClick={() => toggleTask('photo')}
-            className={`card-bg rounded-xl p-3.5 flex items-center justify-between cursor-pointer border transition-all ${
-              log.tasks.photo
-                ? 'border-[#c3f400]/40 bg-[#c3f400]/5'
-                : 'hover:border-[#c3f400]/30'
-            }`}
-          >
-            <div className="flex items-center gap-3.5">
-              <div
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onNavigateToProgress();
-                }}
-                className="w-10 h-10 rounded-full bg-[#122131] border border-[#273647] flex items-center justify-center text-[#00dbe9] hover:text-[#c3f400] transition-colors"
-                title="Open Progress & Checkpoints"
-              >
-                <Camera className="w-5 h-5" />
-              </div>
-              <div>
-                <h4 className="text-base font-semibold text-white">Daily Photo</h4>
-                <p className="text-xs text-[#8e9379]">
-                  {[1, 15, 30, 45, 60, 75, 100].includes(log.programDay)
-                    ? '⭐ Official Checkpoint Day! Take 4 Poses'
-                    : 'Track daily visual transformation'}
-                </p>
-              </div>
-            </div>
-
-            <div
-              className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all ${
-                log.tasks.photo
-                  ? 'border-[#c3f400] bg-[#c3f400]/20 shadow-[0_0_10px_rgba(195,244,0,0.4)] text-[#c3f400]'
-                  : 'border-[#8e9379] text-transparent hover:border-[#c3f400]'
-              }`}
-            >
-              <Check className="w-4 h-4 stroke-[3px]" />
-            </div>
-          </div>
+          {isPhotoCheckpoint && <div className={`card-bg rounded-xl p-4 border ${log.tasks.photo || log.photoCheckpointSkipped ? 'border-[#c3f400]/40' : 'border-[#00eefc]/60 shadow-[0_0_16px_rgba(0,238,252,0.1)]'}`}><div className="flex items-center gap-3.5"><div className="w-10 h-10 rounded-full bg-[#122131] border border-[#273647] flex items-center justify-center text-[#00dbe9]"><Camera className="w-5 h-5" /></div><div><h4 className="text-base font-semibold text-white">Day {log.programDay} Photo Checkpoint</h4><p className="text-xs text-[#8e9379]">Four standardized poses, stored only on this device.</p></div></div><div className="grid grid-cols-2 gap-2 mt-3"><button onClick={onNavigateToProgress} className="py-2.5 rounded-xl bg-[#00eefc] text-[#050810] text-xs font-bold">Take Photos</button><button onClick={() => onUpdateLog({ ...log, photoCheckpointSkipped: true })} className="py-2.5 rounded-xl bg-[#122131] border border-[#273647] text-[#94A3B8] text-xs font-bold">Skip Checkpoint</button></div>{(log.tasks.photo || log.photoCheckpointSkipped) && <p className="text-[10px] text-[#c3f400] mt-2">{log.tasks.photo ? 'Checkpoint marked complete.' : 'Skipped for this checkpoint.'}</p>}</div>}
         </div>
       </section>
 

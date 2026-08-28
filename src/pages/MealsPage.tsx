@@ -12,9 +12,11 @@ import {
   Flame,
   Info,
   ChevronRight,
+  ShoppingCart,
+  PackagePlus,
 } from 'lucide-react';
 import { DailyLog, UserProfile, MealItem } from '../types';
-import { evaluateWeightPlateau } from '../utils/calculations';
+import { analyzeNutritionTrend } from '../utils/calculations';
 import { playClickBeep } from '../utils/sound';
 
 interface MealsPageProps {
@@ -34,12 +36,15 @@ export const MealsPage: React.FC<MealsPageProps> = ({
 }) => {
   const [editingMeal, setEditingMeal] = useState<MealItem | null>(null);
   const [isAddingCustomMeal, setIsAddingCustomMeal] = useState(false);
+  const [showGroceryList, setShowGroceryList] = useState(false);
 
   // Calculate consumed totals
   const totalCalories = log.meals.reduce((sum, m) => (m.completed ? sum + m.calories : sum), 0);
   const totalPlannedCalories = log.meals.reduce((sum, m) => sum + m.calories, 0);
   const totalProtein = log.meals.reduce((sum, m) => (m.completed ? sum + m.protein : sum), 0);
   const totalPlannedProtein = log.meals.reduce((sum, m) => sum + m.protein, 0);
+  const totalPlannedCarbs = log.meals.reduce((sum, m) => sum + m.carbs, 0);
+  const totalPlannedFat = log.meals.reduce((sum, m) => sum + m.fat, 0);
 
   const calorieGoal = profile.calorieGoal || 2600;
   const proteinGoal = profile.proteinGoal || 105;
@@ -48,7 +53,15 @@ export const MealsPage: React.FC<MealsPageProps> = ({
   const proteinPercent = Math.min(100, Math.round((totalProtein / proteinGoal) * 100));
 
   // Plateau surplus analysis
-  const plateauAnalysis = evaluateWeightPlateau(dailyLogs);
+  const nutritionTrend = analyzeNutritionTrend(dailyLogs, profile);
+  const groceryMap: Record<string, { name: string; amount: number; unit: string }> = {};
+  log.meals.forEach((meal) => (meal.ingredients || []).forEach((ingredient) => {
+    const key = `${ingredient.name}_${ingredient.unit}`;
+    groceryMap[key] = groceryMap[key] || { name: ingredient.name, amount: 0, unit: ingredient.unit };
+    groceryMap[key].amount += ingredient.amount * 7;
+  }));
+  const groceryItems = (Object.values(groceryMap) as { name: string; amount: number; unit: string }[])
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   // Water tracker math (8 glasses total)
   const totalCups = 8;
@@ -97,24 +110,40 @@ export const MealsPage: React.FC<MealsPageProps> = ({
   };
 
   const handleSaveMeal = (updatedMeal: MealItem) => {
+    if (/\bpork\b|\bham\b|\bbacon\b|\balcohol\b|\bwine\b|\bbeer\b/i.test(`${updatedMeal.name} ${updatedMeal.description}`)) {
+      alert('100 DAYS meal plans must remain halal and cannot include pork or alcohol.');
+      return;
+    }
+    const ingredientTotals = updatedMeal.ingredients?.length ? {
+      calories: updatedMeal.ingredients.reduce((sum, item) => sum + item.calories, 0),
+      protein: updatedMeal.ingredients.reduce((sum, item) => sum + item.protein, 0),
+      carbs: updatedMeal.ingredients.reduce((sum, item) => sum + item.carbs, 0),
+      fat: updatedMeal.ingredients.reduce((sum, item) => sum + item.fat, 0),
+    } : null;
+    const normalizedMeal: MealItem = ingredientTotals ? { ...updatedMeal, ...ingredientTotals } : {
+      ...updatedMeal,
+      ingredients: [{ name: updatedMeal.portion || 'Packaged serving', amount: 1, unit: 'item', calories: updatedMeal.calories, protein: updatedMeal.protein, carbs: updatedMeal.carbs, fat: updatedMeal.fat }],
+      preparation: updatedMeal.preparation || 'Prepare according to the package or saved meal instructions.',
+      replacement: updatedMeal.replacement || 'Replace with another halal-safe food with similar label values.',
+    };
     let updatedList: MealItem[];
     if (isAddingCustomMeal) {
-      updatedList = [...log.meals, updatedMeal];
+      updatedList = [...log.meals, normalizedMeal];
     } else {
-      updatedList = log.meals.map((m) => (m.id === updatedMeal.id ? updatedMeal : m));
+      updatedList = log.meals.map((m) => (m.id === normalizedMeal.id ? normalizedMeal : m));
     }
     onUpdateLog({ ...log, meals: updatedList });
     setEditingMeal(null);
     setIsAddingCustomMeal(false);
   };
 
-  const handleApplySurplusIncrease = () => {
-    const newGoal = calorieGoal + 200;
+  const handleApplyCalorieAdjustment = () => {
+    const newGoal = calorieGoal + nutritionTrend.suggestedChange;
     onUpdateProfile({
       ...profile,
       calorieGoal: newGoal,
     });
-    alert(`Success! Updated daily calorie target to ${newGoal} kcal (+200 kcal surplus).`);
+    alert(`Daily calorie target updated to ${newGoal} estimated kcal. Future meal plans will use this target.`);
   };
 
   return (
@@ -168,6 +197,7 @@ export const MealsPage: React.FC<MealsPageProps> = ({
             />
           </div>
         </div>
+        <div className="grid grid-cols-3 gap-2 pt-4 mt-4 border-t border-[#1E293B] text-center"><div><span className="block text-[10px] text-[#8e9379]">PLANNED CARBS</span><strong className="text-sm text-white">{totalPlannedCarbs} g</strong></div><div><span className="block text-[10px] text-[#8e9379]">PLANNED FAT</span><strong className="text-sm text-white">{totalPlannedFat} g</strong></div><div><span className="block text-[10px] text-[#8e9379]">PLAN TOTAL</span><strong className="text-sm text-[#c3f400]">{totalPlannedCalories} kcal</strong></div></div>
       </section>
 
       {/* Water Tracker */}
@@ -207,7 +237,7 @@ export const MealsPage: React.FC<MealsPageProps> = ({
       </section>
 
       {/* Plateau Calorie Adjustment Banner (Conditional) */}
-      {plateauAnalysis.isPlateauDetected && (
+      {(nutritionTrend.action === 'increase' || nutritionTrend.action === 'decrease') && (
         <section className="bg-[#c3f400]/10 border-2 border-[#c3f400] rounded-2xl p-4 shadow-[0_0_20px_rgba(195,244,0,0.15)] animate-in fade-in">
           <div className="flex items-start gap-3">
             <TrendingUp className="w-5 h-5 text-[#c3f400] shrink-0 mt-0.5" />
@@ -216,13 +246,13 @@ export const MealsPage: React.FC<MealsPageProps> = ({
                 💡 Calorie Surplus Adjustment
               </h3>
               <p className="text-xs text-[#d4e4fa] leading-relaxed">
-                {plateauAnalysis.message}
+                {nutritionTrend.message}
               </p>
               <button
-                onClick={handleApplySurplusIncrease}
+                onClick={handleApplyCalorieAdjustment}
                 className="px-4 py-2 bg-[#c3f400] text-[#050810] text-xs font-extrabold uppercase rounded-xl shadow-[0_0_10px_rgba(195,244,0,0.4)] hover:bg-[#ccff00]"
               >
-                Apply +200 kcal Daily Goal ({calorieGoal + 200} kcal)
+                Apply {nutritionTrend.suggestedChange > 0 ? '+' : ''}{nutritionTrend.suggestedChange} kcal ({calorieGoal + nutritionTrend.suggestedChange} kcal)
               </button>
             </div>
           </div>
@@ -233,7 +263,7 @@ export const MealsPage: React.FC<MealsPageProps> = ({
       <div className="bg-[#122131]/60 border border-[#273647] rounded-xl p-3 flex items-start gap-2.5 text-[11px] text-[#94A3B8]">
         <Info className="w-4 h-4 text-[#00dbe9] shrink-0 mt-0.5" />
         <span>
-          <strong className="text-[#d4e4fa]">Starting Nutritional Estimate:</strong> 2,500–2,700 kcal & 90–110g protein designed for a 175cm / 51kg muscle-gain beginner. These are starting estimates rather than medical prescriptions.
+          <strong className="text-[#d4e4fa]">Nutrition estimate:</strong> The displayed plan totals are calculated from its ingredient rows. Brand labels, cooking methods, and measured portions can change actual values.
         </span>
       </div>
 
@@ -243,7 +273,13 @@ export const MealsPage: React.FC<MealsPageProps> = ({
           <h2 className="text-xs font-bold text-[#8e9379] uppercase tracking-widest">
             Meal Timeline
           </h2>
-          <button
+          <div className="flex gap-3"><button
+            onClick={() => {
+              setEditingMeal({ id: `label_${Date.now()}`, time: '15:00', name: 'Packaged Food', mealType: 'Custom', description: 'Values entered from the package nutrition label.', portion: '1 labeled serving', calories: 0, protein: 0, carbs: 0, fat: 0, completed: false });
+              setIsAddingCustomMeal(true);
+            }}
+            className="text-xs font-bold text-[#00eefc] hover:underline flex items-center gap-1"
+          ><PackagePlus className="w-3.5 h-3.5" /> Enter Food Label</button><button
             onClick={() => {
               setEditingMeal({
                 id: `custom_${Date.now()}`,
@@ -263,7 +299,7 @@ export const MealsPage: React.FC<MealsPageProps> = ({
             className="text-xs font-bold text-[#c3f400] hover:underline flex items-center gap-1"
           >
             <Plus className="w-3.5 h-3.5" /> Add Meal
-          </button>
+          </button></div>
         </div>
 
         <div className="relative pl-7 space-y-5">
@@ -316,6 +352,8 @@ export const MealsPage: React.FC<MealsPageProps> = ({
                 <p className="text-xs text-[#94A3B8] mb-3 leading-relaxed">
                   {meal.description}
                 </p>
+                {meal.ingredients && <div className="mb-3 space-y-1">{meal.ingredients.map((ingredient, index) => <div key={`${ingredient.name}_${index}`} className="flex justify-between gap-3 text-[11px] text-[#94A3B8]"><span>{ingredient.name} - {ingredient.amount} {ingredient.unit}</span><span className="text-[#d4e4fa] whitespace-nowrap">{ingredient.calories} kcal</span></div>)}</div>}
+                {(meal.preparation || meal.replacement) && <div className="mb-3 text-[11px] space-y-1.5"><p className="text-[#94A3B8]"><strong className="text-[#00eefc]">Prepare:</strong> {meal.preparation}</p><p className="text-[#94A3B8]"><strong className="text-[#c3f400]">Similar replacement:</strong> {meal.replacement}</p></div>}
 
                 {/* Macros & Action Row */}
                 <div className="flex items-center justify-between pt-1">
@@ -346,6 +384,8 @@ export const MealsPage: React.FC<MealsPageProps> = ({
           ))}
         </div>
       </section>
+
+      <section className="bg-[#0E1421] border border-[#1E293B] rounded-2xl p-4 shadow-xl"><button onClick={() => setShowGroceryList((value) => !value)} className="w-full flex items-center justify-between text-left"><span className="text-xs font-bold text-[#8e9379] uppercase tracking-widest flex items-center gap-1.5"><ShoppingCart className="w-4 h-4 text-[#c3f400]" /> Seven-Day Grocery List</span><ChevronRight className={`w-4 h-4 text-[#8e9379] transition-transform ${showGroceryList ? 'rotate-90' : ''}`} /></button>{showGroceryList && <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">{groceryItems.map((item) => <div key={`${item.name}_${item.unit}`} className="bg-[#010f1f] border border-[#273647] rounded-xl p-2.5 flex justify-between gap-2 text-xs"><span className="text-[#d4e4fa]">{item.name}</span><strong className="text-[#c3f400] whitespace-nowrap">{Number(item.amount.toFixed(1))} {item.unit}</strong></div>)}</div>}</section>
 
       {/* Edit / Swap Meal Modal */}
       {editingMeal && (
@@ -385,6 +425,8 @@ export const MealsPage: React.FC<MealsPageProps> = ({
                   className="input-dark w-full rounded-lg px-3 py-2 text-xs"
                 />
               </div>
+
+              <div><label className="block text-[#8e9379] font-bold uppercase mb-1">Package portion / measured serving</label><input value={editingMeal.portion} onChange={(e) => setEditingMeal({ ...editingMeal, portion: e.target.value })} className="input-dark w-full rounded-lg px-3 py-2 text-sm" /></div>
 
               <div className="grid grid-cols-4 gap-2">
                 <div>

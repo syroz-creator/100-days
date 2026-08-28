@@ -18,9 +18,13 @@ import {
   Sun,
   Flame,
   UtensilsCrossed,
+  Pause,
+  Play,
 } from 'lucide-react';
 import { UserProfile, DailyLog } from '../types';
-import { exportAppDataAsJSON, importAppDataFromJSON, clearAllAppData } from '../utils/storage';
+import { exportAppDataAsJSON, importAppDataFromJSON, clearAllAppData, restartPlanData } from '../utils/storage';
+import { formatDateToISO } from '../utils/calculations';
+import { NotificationSettings } from '../components/notifications/NotificationSettings';
 import { playClickBeep } from '../utils/sound';
 
 interface ProfilePageProps {
@@ -64,12 +68,19 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   };
 
   const handleSaveProfile = () => {
+    if (editForm.gymDays.length !== 4) {
+      setImportStatus('Choose exactly four gym days before saving your profile.');
+      return;
+    }
     playClickBeep();
     onUpdateProfile({
       ...profile,
       ...editForm,
       startDate: profile.startDate,
       onboardingCompleted: profile.onboardingCompleted,
+      planStarted: profile.planStarted,
+      planPaused: profile.planPaused,
+      pauseStartedAt: profile.pauseStartedAt,
     });
     setIsEditing(false);
   };
@@ -95,15 +106,33 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     }
   };
 
-  const handleFullReset = () => {
-    if (
-      window.confirm(
-        'Are you sure you want to reset all data? This will clear your daily logs and restore initial settings.'
-      )
-    ) {
-      clearAllAppData();
+  const handleFullReset = async () => {
+    const confirmation = window.prompt('This permanently deletes your profile, workouts, meals, measurements, and local photos. Type RESET to continue.');
+    if (confirmation === 'RESET') {
+      await clearAllAppData();
       onResetApp();
     }
+  };
+
+  const handlePauseResume = () => {
+    if (!profile.planStarted) return;
+    if (!profile.planPaused) {
+      onUpdateProfile({ ...profile, planPaused: true, pauseStartedAt: formatDateToISO(new Date()) });
+      return;
+    }
+    const today = new Date(`${formatDateToISO(new Date())}T00:00:00`);
+    const pausedAt = new Date(`${profile.pauseStartedAt || formatDateToISO(new Date())}T00:00:00`);
+    const pausedDays = Math.max(0, Math.floor((today.getTime() - pausedAt.getTime()) / 86400000));
+    const shiftedStart = new Date(`${profile.startDate}T00:00:00`);
+    shiftedStart.setDate(shiftedStart.getDate() + pausedDays);
+    onUpdateProfile({ ...profile, planPaused: false, pauseStartedAt: undefined, startDate: formatDateToISO(shiftedStart) });
+  };
+
+  const handleRestartPlan = async () => {
+    const confirmation = window.prompt('Restarting clears all plan logs and local progress photos but keeps your profile. Type RESTART to continue.');
+    if (confirmation !== 'RESTART') return;
+    await restartPlanData(profile);
+    onResetApp();
   };
 
   return (
@@ -177,6 +206,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               />
             </div>
 
+            <div><label className="block text-[#8e9379] font-bold uppercase mb-1">Sex</label><select value={editForm.sex} onChange={(e) => setEditForm({ ...editForm, sex: e.target.value as UserProfile['sex'] })} className="input-dark w-full rounded-xl px-3 py-2 text-sm"><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option><option value="prefer_not">Prefer not to say</option></select></div>
+            <div><label className="block text-[#8e9379] font-bold uppercase mb-1">Daily Activity</label><select value={editForm.dailyActivity} onChange={(e) => setEditForm({ ...editForm, dailyActivity: e.target.value as UserProfile['dailyActivity'] })} className="input-dark w-full rounded-xl px-3 py-2 text-sm"><option value="sedentary">Mostly seated</option><option value="light">Lightly active</option><option value="moderate">Moderately active</option><option value="very_active">Very active</option></select></div>
+            <div><label className="block text-[#8e9379] font-bold uppercase mb-1">Training Experience</label><select value={editForm.trainingExperience} onChange={(e) => setEditForm({ ...editForm, trainingExperience: e.target.value as UserProfile['trainingExperience'] })} className="input-dark w-full rounded-xl px-3 py-2 text-sm"><option value="beginner">Beginner</option><option value="intermediate">Intermediate</option><option value="advanced">Advanced</option></select></div>
+
             <div>
               <label className="block text-[#8e9379] font-bold uppercase mb-1">Height (cm)</label>
               <input
@@ -246,6 +279,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               />
             </div>
 
+            <div><label className="block text-[#8e9379] font-bold uppercase mb-1">School Start</label><input type="time" value={editForm.schoolStartTime} onChange={(e) => setEditForm({ ...editForm, schoolStartTime: e.target.value })} className="input-dark w-full rounded-xl px-3 py-2 text-sm" /></div>
+            <div><label className="block text-[#8e9379] font-bold uppercase mb-1">School End</label><input type="time" value={editForm.schoolEndTime} onChange={(e) => setEditForm({ ...editForm, schoolEndTime: e.target.value })} className="input-dark w-full rounded-xl px-3 py-2 text-sm" /></div>
+
             <div>
               <label className="block text-[#8e9379] font-bold uppercase mb-1">Workout Start</label>
               <input
@@ -307,6 +343,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               />
             </div>
 
+            <div><label className="block text-[#8e9379] font-bold uppercase mb-1">Daily Carbs Target (g)</label><input type="number" value={editForm.carbsGoal} onChange={(e) => setEditForm({ ...editForm, carbsGoal: Number(e.target.value) })} className="input-dark w-full rounded-xl px-3 py-2 text-sm" /></div>
+            <div><label className="block text-[#8e9379] font-bold uppercase mb-1">Daily Fat Target (g)</label><input type="number" value={editForm.fatGoal} onChange={(e) => setEditForm({ ...editForm, fatGoal: Number(e.target.value) })} className="input-dark w-full rounded-xl px-3 py-2 text-sm" /></div>
+            <div><label className="block text-[#8e9379] font-bold uppercase mb-1">Sleep Target (hours)</label><input type="number" step="0.5" value={editForm.sleepGoalHours} onChange={(e) => setEditForm({ ...editForm, sleepGoalHours: Number(e.target.value) })} className="input-dark w-full rounded-xl px-3 py-2 text-sm" /></div>
+            <div><label className="block text-[#8e9379] font-bold uppercase mb-1">Meals Per Day</label><select value={editForm.preferredMeals} onChange={(e) => setEditForm({ ...editForm, preferredMeals: Number(e.target.value) })} className="input-dark w-full rounded-xl px-3 py-2 text-sm">{[3,4,5,6].map((count) => <option key={count}>{count}</option>)}</select></div>
+
             <div>
               <label className="block text-[#8e9379] font-bold uppercase mb-1">Water Goal (L)</label>
               <input
@@ -330,6 +371,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               />
             </div>
           </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">{[
+            ['Dietary restrictions', 'dietaryRestrictions'], ['Allergies', 'allergies'], ['Foods liked', 'likedFoods'], ['Foods disliked', 'dislikedFoods'], ['Available equipment', 'availableEquipment'],
+          ].map(([label, key]) => <div key={key}><label className="block text-[#8e9379] font-bold uppercase mb-1">{label}</label><input value={(editForm[key as keyof UserProfile] as string[]).join(', ')} onChange={(e) => setEditForm({ ...editForm, [key]: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} className="input-dark w-full rounded-xl px-3 py-2 text-sm" /></div>)}</div>
 
           <div>
             <label className="block text-[#8e9379] font-bold uppercase mb-2 text-xs">
@@ -375,6 +420,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           </div>
         </section>
       )}
+
+      <section className="bg-[#0E1421] border border-[#1E293B] rounded-2xl p-5 shadow-xl space-y-4"><h3 className="text-xs font-bold text-[#8e9379] uppercase tracking-widest flex items-center gap-1.5"><Calendar className="w-4 h-4 text-[#00eefc]" /> Plan Controls</h3><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-semibold text-white">{profile.planStarted ? profile.planPaused ? 'Plan paused' : `Started ${profile.startDate}` : 'Countdown not started'}</p><p className="text-xs text-[#8e9379]">Pausing preserves progress and shifts the schedule when resumed.</p></div>{profile.planStarted && <button onClick={handlePauseResume} className="px-3 py-2 rounded-xl bg-[#122131] border border-[#273647] text-xs font-bold text-[#d4e4fa] flex items-center gap-1.5">{profile.planPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}{profile.planPaused ? 'Resume' : 'Pause'}</button>}</div>{profile.planStarted && <div className="pt-3 border-t border-[#1E293B] flex items-center justify-between"><p className="text-xs text-[#8e9379]">Clear progress and make today a new Day 1.</p><button onClick={handleRestartPlan} className="px-3 py-1.5 rounded-lg bg-[#ffb4ab]/10 border border-[#ffb4ab]/30 text-[#ffb4ab] text-xs font-bold">Restart Plan</button></div>}</section>
 
       {/* Program Preferences */}
       <section className="bg-[#0E1421] border border-[#1E293B] rounded-2xl p-5 shadow-xl space-y-4">
@@ -461,6 +508,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         </div>
       </section>
 
+      <NotificationSettings profile={profile} onUpdateProfile={onUpdateProfile} />
+
       {/* Data Backup, Export & Import */}
       <section className="bg-[#0E1421] border border-[#1E293B] rounded-2xl p-5 shadow-xl space-y-4">
         <h3 className="text-xs font-bold text-[#8e9379] uppercase tracking-widest flex items-center gap-1.5">
@@ -496,7 +545,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         </div>
 
         <div className="pt-3 border-t border-[#1E293B] flex justify-between items-center">
-          <span className="text-xs text-[#8e9379]">Reset app to initial Day 1 state</span>
+          <span className="text-xs text-[#8e9379]">Delete everything and show onboarding again</span>
           <button
             onClick={handleFullReset}
             className="px-3 py-1.5 rounded-lg bg-[#ffb4ab]/10 border border-[#ffb4ab]/30 text-[#ffb4ab] text-xs font-bold hover:bg-[#ffb4ab]/20 transition-colors flex items-center gap-1"
