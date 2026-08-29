@@ -1,7 +1,7 @@
 import React from 'react';
-import { Calendar, Dumbbell, UtensilsCrossed, TrendingUp, User } from 'lucide-react';
+import { Calendar, Dumbbell, UtensilsCrossed, TrendingUp, User, Wrench } from 'lucide-react';
 
-export type NavTab = 'today' | 'workout' | 'meals' | 'progress' | 'profile';
+export type NavTab = 'today' | 'workout' | 'meals' | 'progress' | 'tools' | 'profile';
 
 interface BottomNavProps {
   activeTab: NavTab;
@@ -14,6 +14,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onSelectTab }) 
     { id: 'workout' as NavTab, label: 'Workout', icon: Dumbbell },
     { id: 'meals' as NavTab, label: 'Meals', icon: UtensilsCrossed },
     { id: 'progress' as NavTab, label: 'Progress', icon: TrendingUp },
+    { id: 'tools' as NavTab, label: 'Tools', icon: Wrench },
     { id: 'profile' as NavTab, label: 'Profile', icon: User },
   ];
 
@@ -29,7 +30,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onSelectTab }) 
               <button
                 key={tab.id}
                 onClick={() => onSelectTab(tab.id)}
-                className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition-all duration-200 ${
+                className={`flex flex-col items-center justify-center py-1.5 px-2 rounded-xl transition-all duration-200 ${
                   isActive
                     ? 'text-[#c3f400] bg-[#c3f400]/10 scale-105 shadow-[0_0_12px_rgba(195,244,0,0.15)] font-bold'
                     : 'text-[#8e9379] hover:text-[#d4e4fa] hover:bg-[#122131]/50'

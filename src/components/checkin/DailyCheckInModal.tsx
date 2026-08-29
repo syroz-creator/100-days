@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Activity, ArrowRight, Moon, Scale } from 'lucide-react';
-import { DailyLog, UserProfile } from '../../types';
+import { DailyLog, PainType, UserProfile } from '../../types';
 import { CHECKPOINT_DAYS } from '../../utils/calculations';
+import { bodyCheckRecommendation } from '../../utils/beginnerFeatures';
 
 interface DailyCheckInModalProps {
   log: DailyLog;
@@ -16,10 +17,18 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({ log, profi
   const [energy, setEnergy] = useState(log.energyLevel || 3);
   const [soreness, setSoreness] = useState(log.sorenessLevel || 3);
   const [note, setNote] = useState(log.notes || '');
+  const [soreAreas, setSoreAreas] = useState<string[]>(log.bodyCheck?.soreAreas || []);
+  const [painType, setPainType] = useState<PainType>(log.bodyCheck?.painType || 'none');
   const [height, setHeight] = useState(profile.heightCm.toString());
   const [waist, setWaist] = useState(log.measurements?.waistCm?.toString() || '');
   const [chest, setChest] = useState(log.measurements?.chestCm?.toString() || '');
   const isCheckpoint = CHECKPOINT_DAYS.includes(log.programDay);
+  const bodyAreas = ['Neck', 'Shoulders', 'Elbows', 'Wrists', 'Back', 'Hips', 'Knees', 'Ankles'];
+  const recommendation = bodyCheckRecommendation(energy, soreness, Number(sleep) || 0, painType);
+
+  const toggleArea = (area: string) => {
+    setSoreAreas((current) => current.includes(area) ? current.filter((item) => item !== area) : [...current, area]);
+  };
 
   const save = () => {
     const weightKg = Number(weight);
@@ -30,6 +39,16 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({ log, profi
       sleepHours: Math.max(0, Math.min(16, Number(sleep) || 0)),
       energyLevel: energy,
       sorenessLevel: soreness,
+      bodyCheck: {
+        energyLevel: energy,
+        sorenessLevel: soreness,
+        sleepHours: Math.max(0, Math.min(16, Number(sleep) || 0)),
+        soreAreas,
+        painType,
+        note: note.trim(),
+        recommendation,
+        acceptedAdjustment: false,
+      },
       notes: note.trim(),
       checkInStatus: 'completed',
       measurements: isCheckpoint ? {
@@ -56,7 +75,36 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({ log, profi
           <label className="bg-[#010f1f] border border-[#273647] rounded-xl p-3"><span className="text-[11px] text-[#8e9379] font-bold flex items-center gap-1"><Moon className="w-3.5 h-3.5" /> SLEEP HOURS</span><input type="number" step="0.25" value={sleep} onChange={(e) => setSleep(e.target.value)} className="bg-transparent text-xl font-bold text-white w-full mt-1 outline-none" /></label>
         </div>
 
-        {[['Energy', energy, setEnergy], ['Muscle soreness', soreness, setSoreness]].map(([label, value, setter]) => <div key={label as string}><div className="flex justify-between text-xs mb-2"><span className="font-bold text-white">{label as string}</span><span className="text-[#c3f400]">{value as number}/5</span></div><div className="grid grid-cols-5 gap-2">{[1,2,3,4,5].map((number) => <button key={number} type="button" onClick={() => (setter as React.Dispatch<React.SetStateAction<number>>)(number)} className={`h-10 rounded-xl border font-bold text-sm ${(value as number) === number ? 'bg-[#c3f400] border-[#c3f400] text-[#050810]' : 'bg-[#010f1f] border-[#273647] text-[#94A3B8]'}`}>{number}</button>)}</div></div>)}
+        {[['Energy', energy, setEnergy], ['Overall soreness', soreness, setSoreness]].map(([label, value, setter]) => <div key={label as string}><div className="flex justify-between text-xs mb-2"><span className="font-bold text-white">{label as string}</span><span className="text-[#c3f400]">{value as number}/5</span></div><div className="grid grid-cols-5 gap-2">{[1,2,3,4,5].map((number) => <button key={number} type="button" onClick={() => (setter as React.Dispatch<React.SetStateAction<number>>)(number)} className={`h-10 rounded-xl border font-bold text-sm ${(value as number) === number ? 'bg-[#c3f400] border-[#c3f400] text-[#050810]' : 'bg-[#010f1f] border-[#273647] text-[#94A3B8]'}`}>{number}</button>)}</div></div>)}
+
+        <div>
+          <p className="text-[11px] text-[#8e9379] font-bold uppercase mb-2">Sore or painful areas</p>
+          <div className="grid grid-cols-2 gap-2">
+            {bodyAreas.map((area) => {
+              const active = soreAreas.includes(area);
+              return (
+                <button key={area} type="button" onClick={() => toggleArea(area)} className={`h-9 rounded-xl border text-xs font-bold ${active ? 'bg-[#00eefc] border-[#00eefc] text-[#050810]' : 'bg-[#010f1f] border-[#273647] text-[#94A3B8]'}`}>
+                  {area}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <label>
+          <span className="text-[11px] text-[#8e9379] font-bold uppercase">Pain type</span>
+          <select value={painType} onChange={(e) => setPainType(e.target.value as PainType)} className="input-dark w-full rounded-xl px-3 py-2 mt-1 text-sm">
+            <option value="none">None</option>
+            <option value="normal_soreness">Normal muscle soreness</option>
+            <option value="discomfort">Discomfort</option>
+            <option value="sharp_pain">Sharp pain</option>
+            <option value="joint_pain">Joint pain</option>
+          </select>
+        </label>
+
+        <div className={`rounded-xl p-3 border text-xs ${painType === 'sharp_pain' || painType === 'joint_pain' ? 'bg-[#ffb4ab]/10 border-[#ffb4ab]/30 text-[#ffb4ab]' : 'bg-[#010f1f] border-[#273647] text-[#d4e4fa]'}`}>
+          {recommendation} The app does not diagnose injuries and will not change the workout unless you confirm it.
+        </div>
 
         {isCheckpoint && <div className="bg-[#010f1f] border border-[#00eefc]/40 rounded-xl p-3 space-y-3"><div><p className="text-xs font-bold text-[#00eefc]">Day {log.programDay} measurement checkpoint</p><p className="text-[11px] text-[#8e9379]">Height is only requested at major checkpoints. Body measurements are optional.</p></div><div className="grid grid-cols-3 gap-2"><label className="text-[10px] text-[#8e9379]">HEIGHT CM<input className="input-dark w-full rounded-lg px-2 py-2 mt-1 text-sm" type="number" value={height} onChange={(e) => setHeight(e.target.value)} /></label><label className="text-[10px] text-[#8e9379]">CHEST CM<input className="input-dark w-full rounded-lg px-2 py-2 mt-1 text-sm" type="number" value={chest} onChange={(e) => setChest(e.target.value)} /></label><label className="text-[10px] text-[#8e9379]">WAIST CM<input className="input-dark w-full rounded-lg px-2 py-2 mt-1 text-sm" type="number" value={waist} onChange={(e) => setWaist(e.target.value)} /></label></div></div>}
 

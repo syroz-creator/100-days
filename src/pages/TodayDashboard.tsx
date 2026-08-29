@@ -18,6 +18,7 @@ import { formatWeight } from '../utils/calculations';
 import { WORKOUT_TEMPLATES } from '../data/initialData';
 import { playClickBeep } from '../utils/sound';
 import { SilentCoachPanel } from '../components/coach/SilentCoachPanel';
+import { buildWeeklyReview, findMissedStrengthWorkout } from '../utils/beginnerFeatures';
 
 interface TodayDashboardProps {
   log: DailyLog;
@@ -25,6 +26,7 @@ interface TodayDashboardProps {
   dailyLogs: Record<string, DailyLog>;
   streak: number;
   onUpdateLog: (updatedLog: DailyLog) => void;
+  onUpdateLogs: (updatedLogs: DailyLog[]) => void;
   onUpdateProfile: (updatedProfile: UserProfile) => void;
   onNavigateToWorkout: () => void;
   onNavigateToMeals: () => void;
@@ -38,6 +40,7 @@ export const TodayDashboard: React.FC<TodayDashboardProps> = ({
   dailyLogs,
   streak,
   onUpdateLog,
+  onUpdateLogs,
   onUpdateProfile,
   onNavigateToWorkout,
   onNavigateToMeals,
@@ -50,6 +53,9 @@ export const TodayDashboard: React.FC<TodayDashboardProps> = ({
   const currentSplitId = log.workoutSplitId || 'upper_a';
   const workoutInfo = WORKOUT_TEMPLATES[currentSplitId] || WORKOUT_TEMPLATES.upper_a;
   const isPhotoCheckpoint = [1, 15, 30, 45, 60, 75, 100].includes(log.programDay);
+  const missedWorkout = findMissedStrengthWorkout(dailyLogs, log.date);
+  const weeklyReview = buildWeeklyReview(dailyLogs, log.date);
+  const isSunday = new Date(`${log.date}T00:00:00`).getDay() === 0;
 
   // Calculate task completion percentage (6 items)
   const taskKeys: (keyof typeof log.tasks)[] = isPhotoCheckpoint
@@ -95,6 +101,28 @@ export const TodayDashboard: React.FC<TodayDashboardProps> = ({
     setIsEditingWeight(false);
   };
 
+  const handleMissedWorkout = (decision: NonNullable<DailyLog['missedWorkoutDecision']>) => {
+    if (!missedWorkout) return;
+    const missedTemplate = WORKOUT_TEMPLATES[missedWorkout.workoutSplitId || 'upper_a'];
+    const updatedMissed: DailyLog = {
+      ...missedWorkout,
+      missedWorkoutDecision: decision,
+      scheduleAdjustmentNote: decision === 'rejected'
+        ? 'Schedule suggestion rejected.'
+        : decision === 'skip'
+          ? 'Skipped without changing the rest of the week.'
+          : 'Moved one missed workout to today while keeping the next same-muscle day separated.',
+    };
+    const updatedToday: DailyLog = decision === 'reschedule' || decision === 'complete_today'
+      ? {
+          ...log,
+          workoutSplitId: missedWorkout.workoutSplitId,
+          scheduleAdjustmentNote: `Today is set to ${missedTemplate.name}; the next same-muscle workout still needs recovery space.`,
+        }
+      : log;
+    onUpdateLogs(decision === 'reschedule' || decision === 'complete_today' ? [updatedMissed, updatedToday] : [updatedMissed]);
+  };
+
   const getDaySubtitle = (day: number) => {
     if (day === 1) return 'The journey begins now.';
     if (day <= 15) return 'Building the unbreakable foundation.';
@@ -123,6 +151,37 @@ export const TodayDashboard: React.FC<TodayDashboardProps> = ({
         dailyLogs={dailyLogs}
         onStartPlan={onStartPlan}
       />
+
+      {missedWorkout && (
+        <section className="bg-[#122131] border border-[#273647] rounded-2xl p-4 space-y-3">
+          <div>
+            <p className="text-[11px] text-[#00eefc] font-bold uppercase tracking-widest">Missed workout recovery</p>
+            <h3 className="text-lg font-black font-display text-white">{WORKOUT_TEMPLATES[missedWorkout.workoutSplitId || 'upper_a'].name} was missed</h3>
+            <p className="text-xs text-[#94A3B8] mt-1">Pick the cleanest way forward. The countdown stays accurate.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => handleMissedWorkout('reschedule')} className="py-2.5 rounded-xl bg-[#c3f400] text-[#050810] text-xs font-bold">Reschedule</button>
+            <button onClick={() => handleMissedWorkout('complete_today')} className="py-2.5 rounded-xl bg-[#00eefc] text-[#050810] text-xs font-bold">Do Today</button>
+            <button onClick={() => handleMissedWorkout('skip')} className="py-2.5 rounded-xl bg-[#010f1f] border border-[#273647] text-[#d4e4fa] text-xs font-bold">Skip</button>
+            <button onClick={() => handleMissedWorkout('rejected')} className="py-2.5 rounded-xl bg-[#010f1f] border border-[#273647] text-[#8e9379] text-xs font-bold">Reject</button>
+          </div>
+        </section>
+      )}
+
+      {isSunday && (
+        <section className="bg-[#0E1421] border border-[#1E293B] rounded-2xl p-4 space-y-3">
+          <div>
+            <p className="text-[11px] text-[#c3f400] font-bold uppercase tracking-widest">Automatic weekly review</p>
+            <h3 className="text-lg font-black font-display text-white">This week at a glance</h3>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="bg-[#010f1f] border border-[#273647] rounded-xl p-2"><p className="text-lg font-black text-white">{weeklyReview.completedWorkouts}</p><p className="text-[10px] text-[#8e9379]">Workouts</p></div>
+            <div className="bg-[#010f1f] border border-[#273647] rounded-xl p-2"><p className="text-lg font-black text-white">{weeklyReview.totalSets}</p><p className="text-[10px] text-[#8e9379]">Sets</p></div>
+            <div className="bg-[#010f1f] border border-[#273647] rounded-xl p-2"><p className="text-lg font-black text-white">{weeklyReview.averageProtein}g</p><p className="text-[10px] text-[#8e9379]">Protein</p></div>
+          </div>
+          <p className="text-xs text-[#94A3B8]">{weeklyReview.wentWell} Next goal: {weeklyReview.goal}</p>
+        </section>
+      )}
 
       {/* Hero Circular Progress Ring */}
       <div className="flex flex-col items-center justify-center my-4">

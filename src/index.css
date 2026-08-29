@@ -111,3 +111,33 @@
 .pt-safe-header {
   padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
 }
+
+.demo-press {
+  transform-origin: 122px 88px;
+  animation: demo-press 1.9s ease-in-out infinite;
+}
+
+.demo-pull {
+  transform-origin: 160px 100px;
+  animation: demo-pull 1.9s ease-in-out infinite;
+}
+
+.demo-lower {
+  transform-origin: 140px 132px;
+  animation: demo-lower 2.1s ease-in-out infinite;
+}
+
+@keyframes demo-press {
+  0%, 100% { transform: translateX(0); }
+  48% { transform: translateX(26px) translateY(-18px); }
+}
+
+@keyframes demo-pull {
+  0%, 100% { transform: translateY(-18px); }
+  52% { transform: translateY(14px); }
+}
+
+@keyframes demo-lower {
+  0%, 100% { transform: translateY(-14px); }
+  52% { transform: translateY(10px) scaleY(0.94); }
+}

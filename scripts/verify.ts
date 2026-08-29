@@ -5,6 +5,15 @@ import {
   calculateCoachPlan,
   recommendNextExercise,
 } from '../src/utils/calculations';
+import {
+  applyBeginnerMode,
+  bodyCheckRecommendation,
+  buildWeeklyReview,
+  calculatePlates,
+  getAchievementCandidates,
+  getBeginnerPhase,
+  suggestStartingWeight,
+} from '../src/utils/beginnerFeatures';
 import { DailyLog, UserProfile } from '../src/types';
 
 class LocalStorageMock {
@@ -68,6 +77,35 @@ const missedExercise = structuredClone(WORKOUT_TEMPLATES.upper_a.exercises[0]);
 missedExercise.sets = missedExercise.sets.map((set) => ({ ...set, completed: true, reps: missedExercise.minReps - 1 }));
 assert.equal(recommendNextExercise(missedExercise, 4).action, 'reduce_weight');
 assert.equal(recommendNextExercise(successfulExercise, 5, 5).action, 'reduce_volume');
+
+const dayOneExercises = applyBeginnerMode(WORKOUT_TEMPLATES.upper_a.exercises, 1, true);
+assert.ok(dayOneExercises.every((exercise) => exercise.sets.length <= exercise.targetSets));
+assert.ok(dayOneExercises.some((exercise) => exercise.targetSets > 1 && exercise.sets.length < exercise.targetSets));
+assert.equal(getBeginnerPhase(15, true).active, false);
+assert.equal(getBeginnerPhase(7, false).active, false);
+
+assert.equal(suggestStartingWeight(10, 4, 5).weightKg, 8);
+assert.equal(suggestStartingWeight(10, 16, 1).weightKg, 11);
+assert.deepEqual(calculatePlates(60, 20, [20, 10, 5]).perSide, [20]);
+assert.equal(calculatePlates(61, 20, [20, 10, 5]).possible, false);
+assert.match(bodyCheckRecommendation(2, 5, 5, 'none'), /Keep weight steady/);
+assert.match(bodyCheckRecommendation(4, 2, 8, 'joint_pain'), /Stop affected movements/);
+
+const reviewLogs = trendLogs([60, 60.2, 60.4]);
+Object.values(reviewLogs).forEach((day, index) => {
+  day.workoutCompleted = index % 2 === 0;
+  day.loggedExercises = [{
+    exerciseId: 'bench_press',
+    exerciseName: 'Bench Press',
+    sets: [{ setNumber: 1, weightKg: 40 + index, reps: 8, completed: true }],
+  }];
+  day.meals.forEach((meal) => { meal.completed = true; });
+  day.tasks.water = true;
+});
+const review = buildWeeklyReview(reviewLogs, '2026-01-21');
+assert.ok(review.totalSets > 0);
+assert.ok(review.mealConsistency >= 80);
+assert.ok(getAchievementCandidates(profile, reviewLogs).some((achievement) => achievement.id === 'first_workout'));
 
 localStorage.setItem('100_DAYS_APP_STATE_V1', JSON.stringify({
   profile: {

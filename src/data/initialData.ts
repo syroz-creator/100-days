@@ -45,6 +45,9 @@ export const DEFAULT_PROFILE: UserProfile = {
   stepGoal: 10000,
   restTimeSeconds: 90,
   unitSystem: 'kg',
+  beginnerModeEnabled: true,
+  guideAcknowledgements: {},
+  permanentExerciseReplacements: {},
   notifications: {
     workoutReminders: true,
     hydrationAlerts: true,

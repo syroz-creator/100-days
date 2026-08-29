@@ -3,6 +3,13 @@ export type PoseType = 'front' | 'side' | 'back' | 'biceps';
 export type Sex = 'male' | 'female' | 'other' | 'prefer_not';
 export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'very_active';
 export type TrainingExperience = 'beginner' | 'intermediate' | 'advanced';
+export type PainType = 'none' | 'normal_soreness' | 'discomfort' | 'sharp_pain' | 'joint_pain';
+export type ReplacementReason =
+  | 'machine_occupied'
+  | 'equipment_unavailable'
+  | 'uncomfortable'
+  | 'temporary_soreness'
+  | 'preference';
 export type ReminderType =
   | 'morningCheckIn'
   | 'mealReminders'
@@ -54,6 +61,9 @@ export interface UserProfile {
   stepGoal: number;
   restTimeSeconds: number;
   unitSystem: UnitSystem;
+  beginnerModeEnabled: boolean;
+  guideAcknowledgements: Record<string, boolean>;
+  permanentExerciseReplacements: Record<string, string>;
   reminders: ReminderSettings;
   notifications: {
     workoutReminders: boolean;
@@ -68,6 +78,17 @@ export interface UserProfile {
   planPaused: boolean;
   pauseStartedAt?: string;
   avatarUrl?: string;
+}
+
+export interface BodyCheck {
+  energyLevel: number;
+  sorenessLevel: number;
+  sleepHours: number;
+  soreAreas: string[];
+  painType: PainType;
+  note?: string;
+  recommendation?: string;
+  acceptedAdjustment?: boolean;
 }
 
 export interface ExerciseSet {
@@ -89,6 +110,28 @@ export interface Exercise {
   restSeconds: number;
   formTips: string;
   sets: ExerciseSet[];
+  replacementForExerciseId?: string;
+  replacementReason?: ReplacementReason;
+  replacementPermanent?: boolean;
+}
+
+export interface LoggedExercise {
+  exerciseId: string;
+  exerciseName: string;
+  difficulty?: number;
+  recommendation?: ExerciseRecommendation;
+  recommendationAccepted?: boolean;
+  replacementForExerciseId?: string;
+  replacementReason?: ReplacementReason;
+  replacementPermanent?: boolean;
+  sets: {
+    setNumber: number;
+    weightKg: number;
+    reps: number;
+    completed: boolean;
+    prevWeightKg?: number;
+    prevReps?: number;
+  }[];
 }
 
 export type WorkoutSplitId = 'upper_a' | 'lower_a' | 'upper_b' | 'lower_b' | 'recovery';
@@ -170,6 +213,7 @@ export interface DailyLog {
   sleepHours: number;
   energyLevel?: number;
   sorenessLevel?: number;
+  bodyCheck?: BodyCheck;
   checkInStatus?: 'completed' | 'skipped';
   measurements?: BodyMeasurements;
   photoCheckpointSkipped?: boolean;
@@ -177,19 +221,10 @@ export interface DailyLog {
   meals: MealItem[];
   workoutCompleted: boolean;
   workoutSplitId?: WorkoutSplitId;
-  loggedExercises?: {
-    exerciseId: string;
-    exerciseName: string;
-    difficulty?: number;
-    recommendation?: ExerciseRecommendation;
-    recommendationAccepted?: boolean;
-    sets: {
-      setNumber: number;
-      weightKg: number;
-      reps: number;
-      completed: boolean;
-    }[];
-  }[];
+  missedWorkoutDecision?: 'reschedule' | 'skip' | 'complete_today' | 'rejected';
+  scheduleAdjustmentNote?: string;
+  loggedExercises?: LoggedExercise[];
+  formRecordingIds?: string[];
   notes?: string;
 }
 
@@ -204,9 +239,30 @@ export interface CheckpointPhoto {
   notes?: string;
 }
 
+export interface FormRecording {
+  id: string;
+  exerciseId: string;
+  exerciseName: string;
+  date: string;
+  programDay: number;
+  videoDataUrl: string;
+  mimeType: string;
+  createdAt: string;
+  autoDeleteAfterReview: boolean;
+}
+
+export interface Achievement {
+  id: string;
+  title: string;
+  description: string;
+  earnedAt: string;
+  seen: boolean;
+}
+
 export interface AppStateData {
   profile: UserProfile;
   dailyLogs: Record<string, DailyLog>;
+  achievements: Achievement[];
   activeProgramDay: number;
   lastUpdated: string;
 }

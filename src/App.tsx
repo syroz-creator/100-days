@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import confetti from 'canvas-confetti';
 import { Header } from './components/layout/Header';
 import { BottomNav, NavTab } from './components/layout/BottomNav';
 import { OnboardingModal } from './components/onboarding/OnboardingModal';
@@ -7,11 +8,13 @@ import { WorkoutPage } from './pages/WorkoutPage';
 import { MealsPage } from './pages/MealsPage';
 import { ProgressPage } from './pages/ProgressPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { ToolsPage } from './pages/ToolsPage';
 import { DailyCheckInModal } from './components/checkin/DailyCheckInModal';
 import {
   loadAppState,
   saveUserProfile,
   saveDailyLog,
+  saveAppState,
   getOrCreateDailyLog,
 } from './utils/storage';
 import { calculateProgramDay, calculateStreak, formatDateToISO } from './utils/calculations';
@@ -25,6 +28,7 @@ export default function App() {
     () => formatDateToISO(new Date())
   );
   const [activeTab, setActiveTab] = useState<NavTab>('today');
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const todayDate = formatDateToISO(new Date());
   const selectedProgramDay = appState.profile.planStarted
     ? calculateProgramDay(
@@ -51,6 +55,39 @@ export default function App() {
 
   // Compute overall current streak
   const streak = calculateStreak(appState.dailyLogs, selectedDate);
+  const unseenAchievement = appState.achievements.find((achievement) => !achievement.seen);
+
+  useEffect(() => {
+    if (!unseenAchievement) return;
+    confetti({
+      particleCount: 70,
+      spread: 60,
+      origin: { y: 0.2 },
+      colors: ['#c3f400', '#00eefc', '#ffffff'],
+    });
+  }, [unseenAchievement?.id]);
+
+  useEffect(() => {
+    const updateOnlineStatus = () => setIsOnline(navigator.onLine);
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
+    };
+  }, []);
+
+  const markAchievementSeen = () => {
+    if (!unseenAchievement) return;
+    const updatedState = {
+      ...appState,
+      achievements: appState.achievements.map((achievement) =>
+        achievement.id === unseenAchievement.id ? { ...achievement, seen: true } : achievement
+      ),
+    };
+    saveAppState(updatedState);
+    setAppState(updatedState);
+  };
 
   // Handle profile updates
   const handleUpdateProfile = (updatedProfile: UserProfile) => {
@@ -111,6 +148,11 @@ export default function App() {
     reloadState();
   };
 
+  const handleUpdateLogs = (updatedLogs: DailyLog[]) => {
+    updatedLogs.forEach((updatedLog) => saveDailyLog(updatedLog));
+    reloadState();
+  };
+
   const handleSelectTab = (tab: NavTab) => {
     if (tab === 'today') {
       setSelectedDate(formatDateToISO(new Date()));
@@ -139,6 +181,12 @@ export default function App() {
             onSelectDate={setSelectedDate}
           />
 
+          {!isOnline && (
+            <div className="sticky top-2 z-40 mx-auto mb-2 w-fit rounded-full bg-[#ffb4ab]/10 border border-[#ffb4ab]/30 px-3 py-1 text-[11px] font-bold text-[#ffb4ab]">
+              Offline - changes are saved on this device
+            </div>
+          )}
+
           {/* Main Content Area */}
           <main className="flex-1 mt-2">
             {activeTab === 'today' && (
@@ -148,6 +196,7 @@ export default function App() {
                 dailyLogs={appState.dailyLogs}
                 streak={streak}
                 onUpdateLog={handleUpdateLog}
+                onUpdateLogs={handleUpdateLogs}
                 onUpdateProfile={handleUpdateProfile}
                 onNavigateToWorkout={() => setActiveTab('workout')}
                 onNavigateToMeals={() => setActiveTab('meals')}
@@ -162,6 +211,7 @@ export default function App() {
                 profile={appState.profile}
                 dailyLogs={appState.dailyLogs}
                 onUpdateLog={handleUpdateLog}
+                onUpdateProfile={handleUpdateProfile}
                 onNavigateToDashboard={() => setActiveTab('today')}
               />
             )}
@@ -186,6 +236,13 @@ export default function App() {
                   setSelectedDate(d);
                   setActiveTab('today');
                 }}
+              />
+            )}
+
+            {activeTab === 'tools' && (
+              <ToolsPage
+                dailyLogs={appState.dailyLogs}
+                achievements={appState.achievements}
               />
             )}
 
@@ -227,6 +284,15 @@ export default function App() {
             }}
           />
         )}
+
+      {unseenAchievement && (
+        <div className="fixed left-4 right-4 top-4 z-[110] max-w-md mx-auto bg-[#122131] border border-[#c3f400]/40 rounded-2xl p-4 shadow-2xl">
+          <p className="text-[11px] text-[#c3f400] font-bold uppercase tracking-widest">Achievement unlocked</p>
+          <h3 className="text-lg font-black font-display text-white">{unseenAchievement.title}</h3>
+          <p className="text-xs text-[#94A3B8] mt-1">{unseenAchievement.description}</p>
+          <button onClick={markAchievementSeen} className="neon-btn w-full mt-3 py-2 rounded-xl text-xs font-bold">Save</button>
+        </div>
+      )}
     </div>
   );
 }

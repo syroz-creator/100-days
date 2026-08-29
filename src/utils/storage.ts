@@ -7,7 +7,15 @@ import {
   WORKOUT_TEMPLATES,
 } from '../data/initialData';
 import { calculateProgramDay, formatDateToISO } from './calculations';
-import { getPhotosFromIDB, clearAllPhotosFromIDB, savePhotoToIDB } from './indexedDB';
+import { getAchievementCandidates } from './beginnerFeatures';
+import {
+  getPhotosFromIDB,
+  clearAllPhotosFromIDB,
+  savePhotoToIDB,
+  getRecordingsFromIDB,
+  saveRecordingToIDB,
+  clearAllRecordingsFromIDB,
+} from './indexedDB';
 
 const STORAGE_KEY = '100_DAYS_APP_STATE_V1';
 const PROFILE_STORAGE_KEY = '100_DAYS_USER_PROFILE_V1';
@@ -26,6 +34,9 @@ function normalizeProfile(
     dislikedFoods: profile?.dislikedFoods || [],
     allergies: profile?.allergies || [],
     availableEquipment: profile?.availableEquipment || DEFAULT_PROFILE.availableEquipment,
+    beginnerModeEnabled: profile?.beginnerModeEnabled ?? (profile?.trainingExperience ? profile.trainingExperience === 'beginner' : true),
+    guideAcknowledgements: profile?.guideAcknowledgements || {},
+    permanentExerciseReplacements: profile?.permanentExerciseReplacements || {},
     notifications: {
       ...DEFAULT_PROFILE.notifications,
       ...profile?.notifications,
@@ -84,6 +95,7 @@ export function getInitialAppState(): AppStateData {
         return {
           profile,
           dailyLogs,
+          achievements: parsed.achievements || [],
           activeProgramDay: currentProgramDay,
           lastUpdated: parsed.lastUpdated || new Date().toISOString(),
         };
@@ -104,6 +116,7 @@ export function getInitialAppState(): AppStateData {
         dailyLogs: {
           [todayISO]: createDefaultDayLog(todayISO, currentProgramDay || 1, profile),
         },
+        achievements: [],
         activeProgramDay: currentProgramDay,
         lastUpdated: new Date().toISOString(),
       };
@@ -121,6 +134,7 @@ export function getInitialAppState(): AppStateData {
     dailyLogs: {
       [todayISO]: initialLog,
     },
+    achievements: [],
     activeProgramDay: 0,
     lastUpdated: new Date().toISOString(),
   };
@@ -130,6 +144,17 @@ export function getInitialAppState(): AppStateData {
 
 export function saveAppState(state: AppStateData): void {
   try {
+    const existing = new Map((state.achievements || []).map((achievement) => [achievement.id, achievement]));
+    for (const candidate of getAchievementCandidates(state.profile, state.dailyLogs)) {
+      if (!existing.has(candidate.id)) {
+        existing.set(candidate.id, {
+          ...candidate,
+          earnedAt: new Date().toISOString(),
+          seen: false,
+        });
+      }
+    }
+    state.achievements = [...existing.values()];
     state.lastUpdated = new Date().toISOString();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(state.profile));
@@ -278,8 +303,10 @@ export async function exportAppDataJSON(includePhotos = true): Promise<string> {
   const state: AppStateData = raw ? JSON.parse(raw) : getInitialAppState();
 
   let photos = [];
+  let formRecordings = [];
   if (includePhotos) {
     photos = await getPhotosFromIDB();
+    formRecordings = await getRecordingsFromIDB();
   }
 
   const exportPayload = {
@@ -288,6 +315,7 @@ export async function exportAppDataJSON(includePhotos = true): Promise<string> {
     appName: '100 DAYS',
     state,
     photos,
+    formRecordings,
   };
 
   return JSON.stringify(exportPayload, null, 2);
@@ -316,6 +344,12 @@ export async function importAppDataJSON(jsonStr: string): Promise<boolean> {
       }
     }
 
+    if (Array.isArray(data.formRecordings) && data.formRecordings.length > 0) {
+      for (const recording of data.formRecordings) {
+        await saveRecordingToIDB(recording);
+      }
+    }
+
     return true;
   } catch (err) {
     console.error('Import failed:', err);
@@ -329,6 +363,7 @@ export async function resetAllAppData(): Promise<void> {
   localStorage.removeItem(PROFILE_STORAGE_KEY);
   localStorage.removeItem(ONBOARDING_COMPLETED_KEY);
   await clearAllPhotosFromIDB();
+  await clearAllRecordingsFromIDB();
 }
 
 export async function restartPlanData(profile: UserProfile): Promise<void> {
@@ -347,9 +382,11 @@ export async function restartPlanData(profile: UserProfile): Promise<void> {
     dailyLogs: {
       [today]: createDefaultDayLog(today, 1, restartedProfile),
     },
+    achievements: [],
     activeProgramDay: 1,
     lastUpdated: new Date().toISOString(),
   };
   saveAppState(state);
   await clearAllPhotosFromIDB();
+  await clearAllRecordingsFromIDB();
 }

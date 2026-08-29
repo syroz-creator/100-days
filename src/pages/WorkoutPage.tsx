@@ -15,18 +15,33 @@ import {
   Maximize2,
   Sparkles,
   Trophy,
+  BookOpen,
+  Repeat2,
+  Video,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { DailyLog, UserProfile, WorkoutTemplate, WorkoutSplitId, Exercise, ExerciseSet } from '../types';
 import { WORKOUT_TEMPLATES } from '../data/initialData';
 import { playTimerCompleteSound, playClickBeep } from '../utils/sound';
 import { recommendNextExercise } from '../utils/calculations';
+import {
+  applyBeginnerMode,
+  createReplacementExercise,
+  getBeginnerPhase,
+  getExerciseAlternatives,
+} from '../utils/beginnerFeatures';
+import { ExerciseGuideModal } from '../components/workout/ExerciseGuideModal';
+import { StartingWeightFinder } from '../components/workout/StartingWeightFinder';
+import { ReplacementModal } from '../components/workout/ReplacementModal';
+import { LiveGymMode } from '../components/workout/LiveGymMode';
+import { FormRecordingModal } from '../components/workout/FormRecordingModal';
 
 interface WorkoutPageProps {
   log: DailyLog;
   profile: UserProfile;
   dailyLogs: Record<string, DailyLog>;
   onUpdateLog: (updatedLog: DailyLog) => void;
+  onUpdateProfile: (updatedProfile: UserProfile) => void;
   onNavigateToDashboard: () => void;
 }
 
@@ -35,12 +50,26 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
   profile,
   dailyLogs,
   onUpdateLog,
+  onUpdateProfile,
   onNavigateToDashboard,
 }) => {
   const currentSplitId: WorkoutSplitId = log.workoutSplitId || 'upper_a';
   const template = WORKOUT_TEMPLATES[currentSplitId] || WORKOUT_TEMPLATES.upper_a;
+  const beginnerPhase = getBeginnerPhase(log.programDay, profile.beginnerModeEnabled);
+
+  const buildPlannedExercises = () => {
+    const withPermanentReplacements = template.exercises.map((exercise) => {
+      const replacementId = profile.permanentExerciseReplacements[exercise.id];
+      const alternative = replacementId
+        ? getExerciseAlternatives(exercise, profile).find((item) => item.id === replacementId)
+        : undefined;
+      return alternative ? createReplacementExercise(exercise, alternative, 'preference', true) : exercise;
+    });
+    return applyBeginnerMode(withPermanentReplacements, log.programDay, profile.beginnerModeEnabled);
+  };
 
   const getAcceptedWeight = (exerciseId: string) => (Object.values(dailyLogs) as DailyLog[])
+    .filter(() => !beginnerPhase.active)
     .filter((item) => item.date < log.date)
     .sort((a, b) => b.date.localeCompare(a.date))
     .flatMap((item) => item.loggedExercises || [])
@@ -48,27 +77,35 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
 
   // Initialize active exercises state from log or template
   const [exercises, setExercises] = useState<Exercise[]>(() => {
+    const plannedExercises = buildPlannedExercises();
     if (log.loggedExercises && log.loggedExercises.length > 0) {
-      return template.exercises.map((templateEx) => {
-        const logged = log.loggedExercises?.find((l) => l.exerciseId === templateEx.id);
+      return plannedExercises.map((templateEx) => {
+        const logged = log.loggedExercises?.find((l) =>
+          l.exerciseId === templateEx.id || l.replacementForExerciseId === templateEx.id || l.replacementForExerciseId === templateEx.replacementForExerciseId
+        );
         if (logged) {
           return {
             ...templateEx,
+            id: logged.exerciseId,
+            name: logged.exerciseName,
+            replacementForExerciseId: logged.replacementForExerciseId,
+            replacementReason: logged.replacementReason,
+            replacementPermanent: logged.replacementPermanent,
             sets: logged.sets.map((s, idx) => ({
               ...templateEx.sets[idx],
               setNumber: s.setNumber,
               weightKg: s.weightKg,
               reps: s.reps,
               completed: s.completed,
-              prevWeightKg: templateEx.sets[idx]?.prevWeightKg || s.weightKg,
-              prevReps: templateEx.sets[idx]?.prevReps || s.reps,
+              prevWeightKg: s.prevWeightKg ?? templateEx.sets[idx]?.prevWeightKg ?? s.weightKg,
+              prevReps: s.prevReps ?? templateEx.sets[idx]?.prevReps ?? s.reps,
             })),
           };
         }
         return templateEx;
       });
     }
-    return template.exercises.map((exercise) => {
+    return plannedExercises.map((exercise) => {
       const acceptedWeight = getAcceptedWeight(exercise.id);
       return acceptedWeight === undefined ? exercise : {
         ...exercise,
@@ -79,7 +116,12 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
 
   const [activeExerciseIndex, setActiveExerciseIndex] = useState(0);
   const [isFocusMode, setIsFocusMode] = useState(false);
+  const [isLiveGymMode, setIsLiveGymMode] = useState(false);
   const [showTips, setShowTips] = useState<Record<string, boolean>>({});
+  const [guideExercise, setGuideExercise] = useState<Exercise | null>(null);
+  const [finderExerciseIndex, setFinderExerciseIndex] = useState<number | null>(null);
+  const [replacementExerciseIndex, setReplacementExerciseIndex] = useState<number | null>(null);
+  const [recordingExercise, setRecordingExercise] = useState<Exercise | null>(null);
   const [exerciseDifficulty, setExerciseDifficulty] = useState<Record<string, number>>(() =>
     Object.fromEntries((log.loggedExercises || []).map((exercise) => [exercise.exerciseId, exercise.difficulty || 3]))
   );
@@ -96,19 +138,31 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
       const existing = log.loggedExercises?.find((item) => item.exerciseId === ex.id);
       const difficulty = difficulties[ex.id] || existing?.difficulty || 3;
       const isFinished = ex.sets.every((set) => set.completed);
+      const learningRecommendation = beginnerPhase.active
+        ? {
+            action: 'maintain' as const,
+            suggestedWeightKg: ex.sets[0]?.weightKg ?? 0,
+            explanation: 'Beginner Mode keeps weights steady during Days 1-14 so technique and recovery stay the priority.',
+          }
+        : undefined;
       return {
       exerciseId: ex.id,
       exerciseName: ex.name,
       difficulty,
       recommendation: isFinished
-        ? recommendNextExercise(ex, difficulty, log.sorenessLevel)
+        ? learningRecommendation || recommendNextExercise(ex, difficulty, log.sorenessLevel)
         : existing?.recommendation,
       recommendationAccepted: existing?.recommendationAccepted || false,
+      replacementForExerciseId: ex.replacementForExerciseId,
+      replacementReason: ex.replacementReason,
+      replacementPermanent: ex.replacementPermanent,
       sets: ex.sets.map((s) => ({
         setNumber: s.setNumber,
         weightKg: s.weightKg,
         reps: s.reps,
         completed: s.completed,
+        prevWeightKg: s.prevWeightKg,
+        prevReps: s.prevReps,
       })),
     };});
 
@@ -149,6 +203,7 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
             clearInterval(timerIntervalRef.current as NodeJS.Timeout);
             setIsTimerRunning(false);
             playTimerCompleteSound();
+            navigator.vibrate?.([160, 80, 160]);
             return 0;
           }
           return prev - 1;
@@ -182,6 +237,11 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
     setTimerSecondsLeft((prev) => prev + 30);
   };
 
+  const handleSkipTimer = () => {
+    setIsTimerRunning(false);
+    setTimerSecondsLeft(0);
+  };
+
   const toggleTip = (exId: string) => {
     setShowTips((prev) => ({ ...prev, [exId]: !prev[exId] }));
   };
@@ -206,6 +266,71 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
       const restSec = updated[exIndex].restSeconds || profile.restTimeSeconds || 90;
       handleResetTimer(restSec);
       handleStartTimer(restSec);
+      const exerciseDone = updated[exIndex].sets.every((set) => set.completed);
+      if (exerciseDone && exIndex < updated.length - 1) {
+        setActiveExerciseIndex(exIndex + 1);
+      }
+    }
+  };
+
+  const handleUndoPreviousSet = () => {
+    const updated = [...exercises];
+    for (let exIndex = updated.length - 1; exIndex >= 0; exIndex -= 1) {
+      for (let setIndex = updated[exIndex].sets.length - 1; setIndex >= 0; setIndex -= 1) {
+        if (updated[exIndex].sets[setIndex].completed) {
+          updated[exIndex].sets[setIndex].completed = false;
+          setActiveExerciseIndex(exIndex);
+          syncToLog(updated);
+          return;
+        }
+      }
+    }
+  };
+
+  const handleSkipExercise = (exIndex: number) => {
+    const updated = [...exercises];
+    updated[exIndex] = {
+      ...updated[exIndex],
+      sets: updated[exIndex].sets.map((set) => ({ ...set, completed: true })),
+    };
+    syncToLog(updated);
+    setActiveExerciseIndex(Math.min(updated.length - 1, exIndex + 1));
+  };
+
+  const handleApplyStartingWeight = (exIndex: number, weightKg: number) => {
+    const updated = [...exercises];
+    updated[exIndex] = {
+      ...updated[exIndex],
+      sets: updated[exIndex].sets.map((set) => ({ ...set, weightKg })),
+    };
+    syncToLog(updated);
+  };
+
+  const handleReplaceExercise = (exIndex: number, replacement: Exercise) => {
+    const updated = [...exercises];
+    updated[exIndex] = replacement;
+    syncToLog(updated);
+    if (replacement.replacementPermanent && replacement.replacementForExerciseId) {
+      onUpdateProfile({
+        ...profile,
+        permanentExerciseReplacements: {
+          ...profile.permanentExerciseReplacements,
+          [replacement.replacementForExerciseId]: replacement.id,
+        },
+      });
+    }
+  };
+
+  const handleSaveRecordingId = (recordingId: string) => {
+    onUpdateLog({
+      ...log,
+      formRecordingIds: Array.from(new Set([...(log.formRecordingIds || []), recordingId])),
+    });
+  };
+
+  const handleEndLiveWorkout = () => {
+    if (window.confirm('End Live Gym Mode? Your completed sets are already saved.')) {
+      setIsLiveGymMode(false);
     }
   };
 
@@ -253,6 +378,10 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
     0
   );
   const workoutProgressPercent = totalSets > 0 ? Math.round((completedSets / totalSets) * 100) : 0;
+  const hasPreviousLog = (exercise: Exercise) => (Object.values(dailyLogs) as DailyLog[])
+    .some((item) => item.date < log.date && (item.loggedExercises || []).some((logged) =>
+      logged.exerciseId === exercise.id || logged.replacementForExerciseId === exercise.id || logged.exerciseId === exercise.replacementForExerciseId
+    ));
 
   // Format timer MM:SS
   const formatTimer = (secs: number) => {
@@ -301,6 +430,13 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
             >
               {isFocusMode ? <ListFilter className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
             </button>
+            <button
+              onClick={() => setIsLiveGymMode(true)}
+              className="p-2 rounded-xl bg-[#c3f400] text-[#050810] hover:scale-105 transition-transform"
+              title="Start Live Gym Mode"
+            >
+              <Dumbbell className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
@@ -312,6 +448,21 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
           />
         </div>
       </div>
+
+      {beginnerPhase.active && (
+        <section className="bg-[#c3f400]/10 border border-[#c3f400]/30 rounded-2xl p-4">
+          <p className="text-[11px] text-[#c3f400] font-bold uppercase tracking-widest">{beginnerPhase.label}</p>
+          <p className="text-sm text-[#d4e4fa] mt-1">{beginnerPhase.explanation}</p>
+          <p className="text-xs text-[#8e9379] mt-1">Automatic weight increases are paused until Day 15.</p>
+        </section>
+      )}
+
+      {log.bodyCheck?.recommendation && (
+        <section className="bg-[#122131] border border-[#273647] rounded-2xl p-4">
+          <p className="text-[11px] text-[#00eefc] font-bold uppercase tracking-widest">Body check</p>
+          <p className="text-sm text-[#d4e4fa] mt-1">{log.bodyCheck.recommendation}</p>
+        </section>
+      )}
 
       {/* Focus Mode Exercise Stepper Header */}
       {isFocusMode && (
@@ -382,16 +533,20 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
                     </p>
                   </div>
 
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleTip(ex.id);
-                    }}
-                    className="text-xs font-semibold text-[#00dbe9] hover:text-[#7df4ff] flex items-center gap-1 bg-[#122131] px-2.5 py-1 rounded-lg border border-[#273647]"
-                  >
-                    <Lightbulb className="w-3.5 h-3.5" /> Tips
-                  </button>
+                  <div className="flex flex-wrap justify-end gap-1.5">
+                    <button onClick={(e) => { e.stopPropagation(); setGuideExercise(ex); }} className="text-xs font-semibold text-[#c3f400] hover:text-white flex items-center gap-1 bg-[#122131] px-2.5 py-1 rounded-lg border border-[#273647]"><BookOpen className="w-3.5 h-3.5" /> Guide</button>
+                    <button onClick={(e) => { e.stopPropagation(); toggleTip(ex.id); }} className="text-xs font-semibold text-[#00dbe9] hover:text-[#7df4ff] flex items-center gap-1 bg-[#122131] px-2.5 py-1 rounded-lg border border-[#273647]"><Lightbulb className="w-3.5 h-3.5" /> Tips</button>
+                    <button onClick={(e) => { e.stopPropagation(); setReplacementExerciseIndex(exIndex); }} className="text-xs font-semibold text-[#00dbe9] hover:text-white flex items-center gap-1 bg-[#122131] px-2.5 py-1 rounded-lg border border-[#273647]"><Repeat2 className="w-3.5 h-3.5" /> Replace</button>
+                    <button onClick={(e) => { e.stopPropagation(); setRecordingExercise(ex); }} className="text-xs font-semibold text-[#c3f400] hover:text-white flex items-center gap-1 bg-[#122131] px-2.5 py-1 rounded-lg border border-[#273647]"><Video className="w-3.5 h-3.5" /> Form</button>
+                  </div>
                 </div>
+
+                {!hasPreviousLog(ex) && (
+                  <div className="mt-3 bg-[#010f1f] border border-[#c3f400]/30 rounded-xl p-3 flex items-center justify-between gap-3">
+                    <p className="text-xs text-[#d4e4fa]">No previous logged sets for this exercise. Use a light test set before choosing weight.</p>
+                    <button onClick={(e) => { e.stopPropagation(); setFinderExerciseIndex(exIndex); }} className="px-3 py-2 rounded-xl bg-[#c3f400] text-[#050810] text-[11px] font-bold shrink-0">Find Weight</button>
+                  </div>
+                )}
 
                 {/* Form Tips Collapsible */}
                 {showTips[ex.id] && (
@@ -573,6 +728,59 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
           <Trophy className="w-5 h-5" /> Complete Workout
         </button>
       </div>
+
+      {isLiveGymMode && (
+        <LiveGymMode
+          exercises={exercises}
+          activeExerciseIndex={activeExerciseIndex}
+          profile={profile}
+          timerSecondsLeft={timerSecondsLeft}
+          isTimerRunning={isTimerRunning}
+          onSetActiveExerciseIndex={setActiveExerciseIndex}
+          onUpdateSet={handleUpdateSet}
+          onCompleteSet={handleToggleSetComplete}
+          onUndoPreviousSet={handleUndoPreviousSet}
+          onSkipExercise={handleSkipExercise}
+          onReplaceExercise={setReplacementExerciseIndex}
+          onShowGuide={setGuideExercise}
+          onRecordForm={setRecordingExercise}
+          onPauseTimer={handlePauseTimer}
+          onStartTimer={() => handleStartTimer()}
+          onAdd30s={handleAdd30s}
+          onSkipTimer={handleSkipTimer}
+          onEndWorkout={handleEndLiveWorkout}
+        />
+      )}
+
+      {guideExercise && (
+        <ExerciseGuideModal exercise={guideExercise} onClose={() => setGuideExercise(null)} />
+      )}
+
+      {finderExerciseIndex !== null && exercises[finderExerciseIndex] && (
+        <StartingWeightFinder
+          exercise={exercises[finderExerciseIndex]}
+          onApply={(weightKg) => handleApplyStartingWeight(finderExerciseIndex, weightKg)}
+          onClose={() => setFinderExerciseIndex(null)}
+        />
+      )}
+
+      {replacementExerciseIndex !== null && exercises[replacementExerciseIndex] && (
+        <ReplacementModal
+          exercise={exercises[replacementExerciseIndex]}
+          profile={profile}
+          onReplace={(replacement) => handleReplaceExercise(replacementExerciseIndex, replacement)}
+          onClose={() => setReplacementExerciseIndex(null)}
+        />
+      )}
+
+      {recordingExercise && (
+        <FormRecordingModal
+          exercise={recordingExercise}
+          log={log}
+          onSaved={handleSaveRecordingId}
+          onClose={() => setRecordingExercise(null)}
+        />
+      )}
     </div>
   );
 };

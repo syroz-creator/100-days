@@ -483,6 +483,28 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             </div>
           </div>
 
+          <div className="flex items-center justify-between py-2 border-b border-[#1E293B] gap-4">
+            <div>
+              <p className="font-semibold text-white">Beginner Mode</p>
+              <p className="text-xs text-[#8e9379]">Days 1-14 reduce volume and keep weights steady while you learn setup.</p>
+            </div>
+            <button
+              onClick={() =>
+                onUpdateProfile({
+                  ...profile,
+                  beginnerModeEnabled: !profile.beginnerModeEnabled,
+                })
+              }
+              className={`px-3 py-2 rounded-xl border text-xs font-bold transition-all ${
+                profile.beginnerModeEnabled
+                  ? 'bg-[#c3f400]/20 border-[#c3f400] text-[#c3f400]'
+                  : 'bg-[#122131] border-[#273647] text-[#8e9379]'
+              }`}
+            >
+              {profile.beginnerModeEnabled ? 'On' : 'Off'}
+            </button>
+          </div>
+
           {/* Audio Sound Feedback */}
           <div className="flex items-center justify-between py-2">
             <div>
