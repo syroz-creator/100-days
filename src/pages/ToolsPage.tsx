@@ -4,6 +4,7 @@ import { Achievement, DailyLog } from '../types';
 import { buildWeeklyReview } from '../utils/beginnerFeatures';
 import { formatDateToISO } from '../utils/calculations';
 import { PlateCalculator } from '../components/workout/PlateCalculator';
+import { ProofFeed } from '../components/proof/ProofFeed';
 
 interface ToolsPageProps {
   dailyLogs: Record<string, DailyLog>;
@@ -36,6 +37,8 @@ export const ToolsPage: React.FC<ToolsPageProps> = ({ dailyLogs, achievements })
       </div>
 
       <PlateCalculator />
+
+      <ProofFeed />
 
       <section className="bg-[#0E1421] border border-[#1E293B] rounded-2xl p-5 space-y-4">
         <div className="flex items-center justify-between gap-3">

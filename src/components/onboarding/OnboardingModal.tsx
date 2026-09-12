@@ -23,6 +23,11 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ initialProfile
   const [profile, setProfile] = useState<UserProfile>({ ...initialProfile, planStarted: false });
   const totalSteps = 6;
   const coach = useMemo(() => calculateCoachPlan(profile, {}), [profile]);
+  const caloriePreviewLabel = profile.targetWeightKg > profile.startWeightKg + 0.5
+    ? 'Lean-bulk target'
+    : profile.targetWeightKg < profile.startWeightKg - 0.5
+      ? 'Fat-loss target'
+      : 'Daily calorie target';
 
   const update = <K extends keyof UserProfile>(key: K, value: UserProfile[K]) => {
     setProfile((current) => ({ ...current, [key]: value }));
@@ -154,7 +159,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ initialProfile
               <div className="w-14 h-14 rounded-full bg-[#c3f400]/15 border border-[#c3f400] mx-auto flex items-center justify-center"><CheckCircle2 className="w-8 h-8 text-[#c3f400]" /></div>
               <div className="text-center"><h2 className="text-2xl font-bold text-white">Your plan preview is ready</h2><p className="text-xs text-[#94A3B8] mt-1">The countdown will not start yet.</p></div>
               <div className="grid grid-cols-2 gap-2 text-xs">
-                {[['BMI context', coach.bmi], ['Maintenance estimate', `${coach.maintenanceCalories} kcal`], ['Muscle-gain target', `${coach.calorieTarget} kcal`], ['Daily protein', `${coach.proteinGrams} g`], ['Carbohydrates', `${coach.carbsGrams} g`], ['Fat', `${coach.fatGrams} g`], ['Water', `${coach.waterLiters} L`], ['Sleep', `${coach.sleepHours} h`]].map(([label, value]) => <div key={label} className="bg-[#010f1f] border border-[#273647] rounded-xl p-3"><span className="block text-[#8e9379]">{label}</span><strong className="text-white">{value}</strong></div>)}
+                {[['BMI context', coach.bmi], ['Maintenance estimate', `${coach.maintenanceCalories} kcal`], [caloriePreviewLabel, `${coach.calorieTarget} kcal`], ['Daily protein', `${coach.proteinGrams} g`], ['Carbohydrates', `${coach.carbsGrams} g`], ['Fat', `${coach.fatGrams} g`], ['Water', `${coach.waterLiters} L`], ['Sleep', `${coach.sleepHours} h`]].map(([label, value]) => <div key={label} className="bg-[#010f1f] border border-[#273647] rounded-xl p-3"><span className="block text-[#8e9379]">{label}</span><strong className="text-white">{value}</strong></div>)}
               </div>
               <p className="text-[11px] text-[#8e9379] leading-relaxed">Calories, nutrition, BMI, body composition, and timeline values are estimates. Brands, preparation, and portions vary. If you are under 18, involve a parent or guardian and a qualified trainer, doctor, or dietitian.</p>
               <button onClick={finish} className="neon-btn w-full py-4 rounded-xl text-base flex items-center justify-center gap-2"><Sparkles className="w-5 h-5" /> Explore My Plan</button>

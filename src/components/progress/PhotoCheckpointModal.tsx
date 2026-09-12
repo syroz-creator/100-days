@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Camera, X, Upload, CheckCircle, Info, Image as ImageIcon } from 'lucide-react';
+import { Camera, X, Upload, CheckCircle, Info, Trash2 } from 'lucide-react';
 import { CheckpointPhoto, PoseType } from '../../types';
-import { savePhotoToIDB, compressImage } from '../../utils/indexedDB';
+import { savePhotoToIDB, compressImage, deletePhotoFromIDB } from '../../utils/indexedDB';
 
 interface PhotoCheckpointModalProps {
   day: number;
@@ -18,6 +18,9 @@ export const PhotoCheckpointModal: React.FC<PhotoCheckpointModalProps> = ({
 }) => {
   const [activePose, setActivePose] = useState<PoseType>('front');
   const [isUploading, setIsUploading] = useState(false);
+  const [weight, setWeight] = useState('');
+  const [notes, setNotes] = useState('');
+  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
   const [previewUrls, setPreviewUrls] = useState<Record<PoseType, string | undefined>>({
     front: initialPhotos.find((p) => p.pose === 'front')?.imageDataUrl,
     side: initialPhotos.find((p) => p.pose === 'side')?.imageDataUrl,
@@ -58,6 +61,8 @@ export const PhotoCheckpointModal: React.FC<PhotoCheckpointModalProps> = ({
         date: new Date().toISOString().split('T')[0],
         pose: activePose,
         imageDataUrl: compressedDataUrl,
+        weightKg: weight ? Number(weight) : undefined,
+        notes: notes.trim() || undefined,
       };
 
       await savePhotoToIDB(newPhoto);
@@ -68,7 +73,17 @@ export const PhotoCheckpointModal: React.FC<PhotoCheckpointModalProps> = ({
       alert('Failed to process image. Please try another photo.');
     } finally {
       setIsUploading(false);
+      e.target.value = '';
     }
+  };
+
+  const handleDelete = async () => {
+    const photo = initialPhotos.find((p) => p.pose === activePose);
+    if (!photo) return;
+    if (!window.confirm(`Delete the Day ${day} ${activePose} progress photo?`)) return;
+    await deletePhotoFromIDB(photo.id);
+    setPreviewUrls((prev) => ({ ...prev, [activePose]: undefined }));
+    onPhotosUpdated();
   };
 
   return (
@@ -146,17 +161,23 @@ export const PhotoCheckpointModal: React.FC<PhotoCheckpointModalProps> = ({
             <span className="text-[#94A3B8] text-[11px]">{poseInfo[activePose].instruction}</span>
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
+            <input type="number" step="0.1" value={weight} onChange={(e) => setWeight(e.target.value)} className="input-dark rounded-xl px-3 py-2 text-sm" placeholder="Weight kg" />
+            <input value={notes} onChange={(e) => setNotes(e.target.value)} className="input-dark rounded-xl px-3 py-2 text-sm" placeholder="Note" />
+          </div>
+
           <div className="relative h-60 w-full rounded-xl border-2 border-dashed border-[#273647] hover:border-[#00eefc]/60 bg-[#050810] flex flex-col items-center justify-center overflow-hidden group">
             {previewUrls[activePose] ? (
               <>
                 <img
                   src={previewUrls[activePose]}
                   alt={activePose}
-                  className="w-full h-full object-cover"
+                  onClick={() => setFullscreenImage(previewUrls[activePose] || null)}
+                  className="w-full h-full object-contain cursor-zoom-in"
                 />
-                <div className="absolute inset-0 bg-[#050810]/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <label className="cursor-pointer px-4 py-2 bg-[#c3f400] text-[#050810] rounded-xl text-xs font-bold uppercase shadow-lg">
-                    Replace Photo
+                <div className="absolute inset-0 bg-[#050810]/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                  <label className="cursor-pointer px-3 py-2 bg-[#c3f400] text-[#050810] rounded-xl text-xs font-bold uppercase shadow-lg flex items-center gap-1.5">
+                    <Camera className="w-3.5 h-3.5" /> Take
                     <input
                       type="file"
                       accept="image/*"
@@ -165,23 +186,46 @@ export const PhotoCheckpointModal: React.FC<PhotoCheckpointModalProps> = ({
                       onChange={handleFileUpload}
                     />
                   </label>
+                  <label className="cursor-pointer px-3 py-2 bg-[#122131] border border-[#00eefc]/40 text-[#00eefc] rounded-xl text-xs font-bold uppercase shadow-lg flex items-center gap-1.5">
+                    <Upload className="w-3.5 h-3.5" /> Upload
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleFileUpload}
+                    />
+                  </label>
                 </div>
               </>
             ) : (
-              <label className="cursor-pointer flex flex-col items-center justify-center p-6 text-center w-full h-full">
+              <div className="flex flex-col items-center justify-center p-6 text-center w-full h-full">
                 <div className="w-12 h-12 rounded-full bg-[#122131] border border-[#273647] flex items-center justify-center text-[#00eefc] mb-2 group-hover:scale-110 transition-transform">
                   <Upload className="w-5 h-5" />
                 </div>
                 <span className="text-xs font-bold text-white">Upload {poseInfo[activePose].title}</span>
-                <span className="text-[10px] text-[#8e9379] mt-1">Tap to capture or select image</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={handleFileUpload}
-                />
-              </label>
+                <span className="text-[10px] text-[#8e9379] mt-1">Use a new camera shot or choose one already on your phone.</span>
+                <div className="mt-4 grid grid-cols-2 gap-2 w-full max-w-xs">
+                  <label className="cursor-pointer py-2.5 rounded-xl bg-[#c3f400] text-[#050810] text-xs font-bold flex items-center justify-center gap-1.5">
+                    <Camera className="w-4 h-4" /> Take Photo
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={handleFileUpload}
+                    />
+                  </label>
+                  <label className="cursor-pointer py-2.5 rounded-xl bg-[#122131] border border-[#273647] text-[#00eefc] text-xs font-bold flex items-center justify-center gap-1.5">
+                    <Upload className="w-4 h-4" /> From Phone
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleFileUpload}
+                    />
+                  </label>
+                </div>
+              </div>
             )}
 
             {isUploading && (
@@ -194,6 +238,14 @@ export const PhotoCheckpointModal: React.FC<PhotoCheckpointModalProps> = ({
 
         {/* Footer */}
         <div className="flex justify-end pt-2 border-t border-[#273647]">
+          {previewUrls[activePose] && (
+            <button
+              onClick={handleDelete}
+              className="mr-auto px-4 py-2.5 rounded-xl bg-[#ffb4ab]/10 border border-[#ffb4ab]/30 text-[#ffb4ab] text-xs font-bold flex items-center gap-2"
+            >
+              <Trash2 className="w-4 h-4" /> Delete
+            </button>
+          )}
           <button
             onClick={onClose}
             className="neon-btn px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider"
@@ -202,6 +254,11 @@ export const PhotoCheckpointModal: React.FC<PhotoCheckpointModalProps> = ({
           </button>
         </div>
       </div>
+      {fullscreenImage && (
+        <div className="fixed inset-0 z-[120] bg-[#050810]/95 flex items-center justify-center p-4" onClick={() => setFullscreenImage(null)}>
+          <img src={fullscreenImage} alt="Full screen progress" className="max-w-full max-h-full object-contain" />
+        </div>
+      )}
     </div>
   );
 };

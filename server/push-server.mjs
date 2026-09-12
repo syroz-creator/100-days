@@ -67,24 +67,25 @@ function programDay(startDate, date) {
 function dueNotifications(record, local) {
   if (!record.planStarted || record.planPaused) return [];
   const result = [];
+  const day = programDay(record.startDate, local.date);
+  const dailyNudge = day > 0 ? `Day ${day}: ` : '';
   const add = (type, tag, title, body, when = record.reminders[type]?.time) => {
     if (record.reminders[type]?.enabled && when === local.time) result.push({ tag, title, body });
   };
-  add('morningCheckIn', 'daily-check-in', '100 DAYS Check-In', 'Log today’s weight, sleep, energy, and soreness.');
-  add('water', 'water', 'Water Reminder', 'Check your water progress for today.');
-  add('bedtime', 'bedtime', 'Recovery Starts Now', 'Begin winding down for your sleep target.');
+  add('morningCheckIn', 'daily-check-in', `${dailyNudge}set the target`, 'Log weight, sleep, energy, and soreness. The plan gets smarter when you give it real data.');
+  add('water', 'water', 'Quick water check', 'One minute: open the app, tap your cups, and keep the day from drifting.');
+  add('bedtime', 'bedtime', 'Protect tomorrow', 'Wind down now so tomorrow does not start already tired.');
   if ((record.gymDays || []).includes(['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(local.weekday))) {
-    add('preWorkout', 'pre-workout', 'Pre-Workout Reminder', 'Your planned workout is coming up.');
-    add('workoutStart', 'workout-start', 'Workout Start', 'Open today’s workout and log every working set.');
+    add('preWorkout', 'pre-workout', 'Fuel then lift', 'Training is coming up. Eat the planned pre-gym meal and show up ready.');
+    add('workoutStart', 'workout-start', 'Start the session', 'Open the workout, log the first set, and let momentum do the rest.');
   }
   if (record.reminders.mealReminders?.enabled) {
     (record.mealTimes || []).forEach((meal, index) => {
-      if (meal.time === local.time) result.push({ tag: `meal-${index}`, title: meal.name || 'Planned Meal', body: 'Your planned meal is ready. Nutrition values remain estimates.' });
+      if (meal.time === local.time) result.push({ tag: `meal-${index}`, title: meal.name || 'Planned Meal', body: 'This is the boring part that changes your body. Eat the planned portion and mark it done.' });
     });
   }
-  const day = programDay(record.startDate, local.date);
-  if ([1, 15, 30, 45, 60, 75, 100].includes(day)) add('progressPhotos', `photos-${day}`, `Day ${day} Photo Checkpoint`, 'Take four standardized progress photos, or skip this checkpoint.');
-  if (local.weekday === 'Sun') add('weeklyReview', 'weekly-review', 'Sunday Review', 'Review your seven-day weight average and completed sessions.');
+  if ([1, 15, 30, 45, 60, 75, 100].includes(day)) add('progressPhotos', `photos-${day}`, `Day ${day} Photo Checkpoint`, 'Take or upload the four photos. Same lighting, same angles, no overthinking.');
+  if (local.weekday === 'Sun') add('weeklyReview', 'weekly-review', 'Sunday Review', 'Check the seven-day weight average and adjust next week instead of guessing.');
   return result;
 }
 

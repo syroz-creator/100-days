@@ -532,6 +532,48 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
       <NotificationSettings profile={profile} onUpdateProfile={onUpdateProfile} />
 
+      <section className="bg-[#0E1421] border border-[#1E293B] rounded-2xl p-5 shadow-xl space-y-4">
+        <h3 className="text-xs font-bold text-[#8e9379] uppercase tracking-widest flex items-center gap-1.5">
+          <Calendar className="w-4 h-4 text-[#00eefc]" /> School Schedule
+        </h3>
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <label className="text-[#8e9379] font-bold uppercase">School Start<input type="time" value={profile.schoolSchedule.schoolStartTime} onChange={(e) => onUpdateProfile({ ...profile, schoolSchedule: { ...profile.schoolSchedule, schoolStartTime: e.target.value, scheduleSetupCompleted: true } })} className="input-dark w-full rounded-xl px-3 py-2 mt-1 text-sm" /></label>
+          <label className="text-[#8e9379] font-bold uppercase">School Finish<input type="time" value={profile.schoolSchedule.schoolEndTime} onChange={(e) => onUpdateProfile({ ...profile, schoolSchedule: { ...profile.schoolSchedule, schoolEndTime: e.target.value, scheduleSetupCompleted: true } })} className="input-dark w-full rounded-xl px-3 py-2 mt-1 text-sm" /></label>
+          <label className="text-[#8e9379] font-bold uppercase">Wake Time<input type="time" value={profile.schoolSchedule.wakeTime} onChange={(e) => onUpdateProfile({ ...profile, schoolSchedule: { ...profile.schoolSchedule, wakeTime: e.target.value, scheduleSetupCompleted: true } })} className="input-dark w-full rounded-xl px-3 py-2 mt-1 text-sm" /></label>
+          <label className="text-[#8e9379] font-bold uppercase">Bedtime<input type="time" value={profile.schoolSchedule.bedtime} onChange={(e) => onUpdateProfile({ ...profile, schoolSchedule: { ...profile.schoolSchedule, bedtime: e.target.value, scheduleSetupCompleted: true } })} className="input-dark w-full rounded-xl px-3 py-2 mt-1 text-sm" /></label>
+          <label className="text-[#8e9379] font-bold uppercase">School to Home Min<input type="number" value={profile.schoolSchedule.travelMinutesSchoolHome} onChange={(e) => onUpdateProfile({ ...profile, schoolSchedule: { ...profile.schoolSchedule, travelMinutesSchoolHome: Number(e.target.value) || 0, scheduleSetupCompleted: true } })} className="input-dark w-full rounded-xl px-3 py-2 mt-1 text-sm" /></label>
+          <label className="text-[#8e9379] font-bold uppercase">School to Gym Min<input type="number" value={profile.schoolSchedule.travelMinutesSchoolGym} onChange={(e) => onUpdateProfile({ ...profile, schoolSchedule: { ...profile.schoolSchedule, travelMinutesSchoolGym: Number(e.target.value) || 0, scheduleSetupCompleted: true } })} className="input-dark w-full rounded-xl px-3 py-2 mt-1 text-sm" /></label>
+        </div>
+        <div className="space-y-3">
+          <div><p className="text-[11px] text-[#8e9379] font-bold uppercase mb-2">School Days</p><div className="flex flex-wrap gap-2">{dayLabels.map((d, idx) => <button key={`school-${idx}`} onClick={() => { const current = profile.schoolSchedule.schoolDays; const exists = current.includes(d.day); onUpdateProfile({ ...profile, schoolSchedule: { ...profile.schoolSchedule, schoolDays: exists ? current.filter((day) => day !== d.day) : [...current, d.day].sort(), scheduleSetupCompleted: true } }); }} className={`w-10 h-10 rounded-xl text-xs font-bold border ${profile.schoolSchedule.schoolDays.includes(d.day) ? 'bg-[#00eefc] text-[#050810] border-[#00eefc]' : 'bg-[#010f1f] border-[#273647] text-[#94A3B8]'}`}>{d.label}</button>)}</div></div>
+          <div><p className="text-[11px] text-[#8e9379] font-bold uppercase mb-2">Preferred Gym Days</p><div className="flex flex-wrap gap-2">{dayLabels.map((d, idx) => <button key={`gym-${idx}`} onClick={() => { const current = profile.schoolSchedule.preferredGymDays; const exists = current.includes(d.day); onUpdateProfile({ ...profile, schoolSchedule: { ...profile.schoolSchedule, preferredGymDays: exists ? current.filter((day) => day !== d.day) : [...current, d.day].sort(), scheduleSetupCompleted: true } }); }} className={`w-10 h-10 rounded-xl text-xs font-bold border ${profile.schoolSchedule.preferredGymDays.includes(d.day) ? 'bg-[#c3f400] text-[#050810] border-[#c3f400]' : 'bg-[#010f1f] border-[#273647] text-[#94A3B8]'}`}>{d.label}</button>)}</div></div>
+        </div>
+      </section>
+
+      <section className="bg-[#0E1421] border border-[#1E293B] rounded-2xl p-5 shadow-xl space-y-4">
+        <h3 className="text-xs font-bold text-[#8e9379] uppercase tracking-widest flex items-center gap-1.5">
+          <ShieldCheck className="w-4 h-4 text-[#c3f400]" /> Proof Settings
+        </h3>
+        <div className="grid grid-cols-1 gap-3 text-xs">
+          {[
+            ['Workout proof', 'workoutProof'],
+            ['Schedule task proof', 'scheduleTaskProof'],
+            ['Meal proof', 'mealProof'],
+          ].map(([label, key]) => (
+            <label key={key} className="flex items-center justify-between gap-3 bg-[#010f1f] border border-[#273647] rounded-xl p-3">
+              <span className="font-bold text-white">{label}</span>
+              <select value={profile.proofSettings[key as keyof typeof profile.proofSettings] as string} onChange={(e) => onUpdateProfile({ ...profile, proofSettings: { ...profile.proofSettings, [key]: e.target.value } })} className="input-dark rounded-lg px-2 py-1.5">
+                <option value="required">Required</option>
+                <option value="optional">Optional</option>
+                <option value="none">No proof</option>
+              </select>
+            </label>
+          ))}
+          <label className="flex items-center justify-between gap-3 bg-[#010f1f] border border-[#273647] rounded-xl p-3"><span className="font-bold text-white">Existing photo upload</span><input type="checkbox" checked={profile.proofSettings.allowPhotoUpload} onChange={(e) => onUpdateProfile({ ...profile, proofSettings: { ...profile.proofSettings, allowPhotoUpload: e.target.checked } })} className="w-5 h-5 accent-[#c3f400]" /></label>
+          <label className="flex items-center justify-between gap-3 bg-[#010f1f] border border-[#273647] rounded-xl p-3"><span className="font-bold text-white">Location check-in</span><input type="checkbox" checked={profile.proofSettings.allowLocationCheckIn} onChange={(e) => onUpdateProfile({ ...profile, proofSettings: { ...profile.proofSettings, allowLocationCheckIn: e.target.checked } })} className="w-5 h-5 accent-[#c3f400]" /></label>
+        </div>
+      </section>
+
       {/* Data Backup, Export & Import */}
       <section className="bg-[#0E1421] border border-[#1E293B] rounded-2xl p-5 shadow-xl space-y-4">
         <h3 className="text-xs font-bold text-[#8e9379] uppercase tracking-widest flex items-center gap-1.5">

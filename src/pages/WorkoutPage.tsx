@@ -35,6 +35,7 @@ import { StartingWeightFinder } from '../components/workout/StartingWeightFinder
 import { ReplacementModal } from '../components/workout/ReplacementModal';
 import { LiveGymMode } from '../components/workout/LiveGymMode';
 import { FormRecordingModal } from '../components/workout/FormRecordingModal';
+import { ProofModal } from '../components/proof/ProofModal';
 
 interface WorkoutPageProps {
   log: DailyLog;
@@ -122,6 +123,7 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
   const [finderExerciseIndex, setFinderExerciseIndex] = useState<number | null>(null);
   const [replacementExerciseIndex, setReplacementExerciseIndex] = useState<number | null>(null);
   const [recordingExercise, setRecordingExercise] = useState<Exercise | null>(null);
+  const [showWorkoutProof, setShowWorkoutProof] = useState(false);
   const [exerciseDifficulty, setExerciseDifficulty] = useState<Record<string, number>>(() =>
     Object.fromEntries((log.loggedExercises || []).map((exercise) => [exercise.exerciseId, exercise.difficulty || 3]))
   );
@@ -167,14 +169,15 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
     };});
 
     const allCompleted = updatedExList.every((ex) => ex.sets.every((s) => s.completed));
+    const proofAllowsCompletion = profile.proofSettings.workoutProof !== 'required' || (log.proofEntryIds?.length || 0) > 0 || log.workoutCompleted;
 
     onUpdateLog({
       ...log,
       loggedExercises,
-      workoutCompleted: allCompleted || log.workoutCompleted,
+      workoutCompleted: (allCompleted && proofAllowsCompletion) || log.workoutCompleted,
       tasks: {
         ...log.tasks,
-        workout: allCompleted || log.tasks.workout,
+        workout: (allCompleted && proofAllowsCompletion) || log.tasks.workout,
       },
     });
   };
@@ -270,6 +273,9 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
       if (exerciseDone && exIndex < updated.length - 1) {
         setActiveExerciseIndex(exIndex + 1);
       }
+      if (updated.every((exercise) => exercise.sets.every((set) => set.completed)) && profile.proofSettings.workoutProof !== 'none') {
+        setShowWorkoutProof(true);
+      }
     }
   };
 
@@ -362,7 +368,48 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
       ...ex,
       sets: ex.sets.map((s) => ({ ...s, completed: true })),
     }));
-    syncToLog(updated);
+    if (profile.proofSettings.workoutProof === 'none') {
+      syncToLog(updated);
+      return;
+    }
+    setExercises(updated);
+    setShowWorkoutProof(true);
+  };
+
+  const finalizeWorkoutCompletion = (proofEntryId?: string, completedWithoutProof = false, reason?: string) => {
+    const loggedExercises = exercises.map((ex) => ({
+      exerciseId: ex.id,
+      exerciseName: ex.name,
+      difficulty: exerciseDifficulty[ex.id] || 3,
+      recommendation: beginnerPhase.active
+        ? {
+            action: 'maintain' as const,
+            suggestedWeightKg: ex.sets[0]?.weightKg ?? 0,
+            explanation: 'Beginner Mode keeps weights steady during Days 1-14 so technique and recovery stay the priority.',
+          }
+        : recommendNextExercise(ex, exerciseDifficulty[ex.id] || 3, log.sorenessLevel),
+      recommendationAccepted: log.loggedExercises?.find((item) => item.exerciseId === ex.id)?.recommendationAccepted || false,
+      replacementForExerciseId: ex.replacementForExerciseId,
+      replacementReason: ex.replacementReason,
+      replacementPermanent: ex.replacementPermanent,
+      sets: ex.sets.map((s) => ({
+        setNumber: s.setNumber,
+        weightKg: s.weightKg,
+        reps: s.reps,
+        completed: true,
+        prevWeightKg: s.prevWeightKg,
+        prevReps: s.prevReps,
+      })),
+    }));
+    onUpdateLog({
+      ...log,
+      loggedExercises,
+      workoutCompleted: true,
+      tasks: { ...log.tasks, workout: true },
+      proofEntryIds: proofEntryId ? Array.from(new Set([...(log.proofEntryIds || []), proofEntryId])) : log.proofEntryIds,
+      notes: completedWithoutProof ? `${log.notes || ''}\nWorkout completed without proof: ${reason || 'reason saved'}`.trim() : log.notes,
+    });
+    setShowWorkoutProof(false);
   };
 
   // Progressive overload check: Check if all sets hit maximum target rep range
@@ -779,6 +826,25 @@ export const WorkoutPage: React.FC<WorkoutPageProps> = ({
           log={log}
           onSaved={handleSaveRecordingId}
           onClose={() => setRecordingExercise(null)}
+        />
+      )}
+
+      {showWorkoutProof && (
+        <ProofModal
+          task={{
+            id: `${log.date}_workout_${currentSplitId}`,
+            title: `${template.name} workout`,
+            type: 'workout',
+            proofTypes: ['live_photo', 'upload_photo', 'note', 'checklist', 'timer', 'location'],
+          }}
+          date={log.date}
+          requirement={profile.proofSettings.workoutProof}
+          allowPhotoUpload={profile.proofSettings.allowPhotoUpload}
+          allowLocation={profile.proofSettings.allowLocationCheckIn}
+          onProofSaved={(entry) => finalizeWorkoutCompletion(entry.id)}
+          onCompleteWithoutProof={(reason, _note, entry) => finalizeWorkoutCompletion(entry.id, true, reason)}
+          onSkipOptional={() => finalizeWorkoutCompletion()}
+          onClose={() => setShowWorkoutProof(false)}
         />
       )}
     </div>

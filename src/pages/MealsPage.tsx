@@ -16,8 +16,10 @@ import {
   PackagePlus,
 } from 'lucide-react';
 import { DailyLog, UserProfile, MealItem } from '../types';
-import { analyzeNutritionTrend } from '../utils/calculations';
+import { analyzeNutritionTrend, calculateCoachPlan } from '../utils/calculations';
 import { playClickBeep } from '../utils/sound';
+import { ProofModal } from '../components/proof/ProofModal';
+import { buildDailyMealPlan } from '../data/initialData';
 
 interface MealsPageProps {
   log: DailyLog;
@@ -37,6 +39,7 @@ export const MealsPage: React.FC<MealsPageProps> = ({
   const [editingMeal, setEditingMeal] = useState<MealItem | null>(null);
   const [isAddingCustomMeal, setIsAddingCustomMeal] = useState(false);
   const [showGroceryList, setShowGroceryList] = useState(false);
+  const [proofMeal, setProofMeal] = useState<MealItem | null>(null);
 
   // Calculate consumed totals
   const totalCalories = log.meals.reduce((sum, m) => (m.completed ? sum + m.calories : sum), 0);
@@ -46,8 +49,14 @@ export const MealsPage: React.FC<MealsPageProps> = ({
   const totalPlannedCarbs = log.meals.reduce((sum, m) => sum + m.carbs, 0);
   const totalPlannedFat = log.meals.reduce((sum, m) => sum + m.fat, 0);
 
-  const calorieGoal = profile.calorieGoal || 2600;
-  const proteinGoal = profile.proteinGoal || 105;
+  const coachPlan = calculateCoachPlan(profile, dailyLogs, log);
+  const calorieGoal = coachPlan.calorieTarget;
+  const proteinGoal = coachPlan.proteinGrams;
+  const nutritionMode = profile.targetWeightKg > (log.weightKg || profile.currentWeightKg) + 0.5
+    ? 'Lean bulk'
+    : profile.targetWeightKg < (log.weightKg || profile.currentWeightKg) - 0.5
+      ? 'Fat loss'
+      : 'Maintain';
 
   const calPercent = Math.min(100, Math.round((totalCalories / calorieGoal) * 100));
   const proteinPercent = Math.min(100, Math.round((totalProtein / proteinGoal) * 100));
@@ -90,6 +99,11 @@ export const MealsPage: React.FC<MealsPageProps> = ({
 
   const handleToggleMeal = (mealId: string) => {
     playClickBeep();
+    const meal = log.meals.find((item) => item.id === mealId);
+    if (meal && !meal.completed && profile.proofSettings.mealProof === 'required') {
+      setProofMeal(meal);
+      return;
+    }
     const updatedMeals = log.meals.map((m) => {
       if (m.id === mealId) {
         return { ...m, completed: !m.completed };
@@ -107,6 +121,18 @@ export const MealsPage: React.FC<MealsPageProps> = ({
         meals: allMealsCompleted,
       },
     });
+  };
+
+  const markMealComplete = (meal: MealItem, proofEntryId?: string, withoutProofReason?: string) => {
+    const updatedMeals = log.meals.map((item) => item.id === meal.id ? { ...item, completed: true } : item);
+    onUpdateLog({
+      ...log,
+      meals: updatedMeals,
+      proofEntryIds: proofEntryId ? Array.from(new Set([...(log.proofEntryIds || []), proofEntryId])) : log.proofEntryIds,
+      notes: withoutProofReason ? `${log.notes || ''}\nMeal completed without proof: ${meal.name} (${withoutProofReason})`.trim() : log.notes,
+      tasks: { ...log.tasks, meals: updatedMeals.every((item) => item.completed) },
+    });
+    setProofMeal(null);
   };
 
   const handleSaveMeal = (updatedMeal: MealItem) => {
@@ -146,6 +172,20 @@ export const MealsPage: React.FC<MealsPageProps> = ({
     alert(`Daily calorie target updated to ${newGoal} estimated kcal. Future meal plans will use this target.`);
   };
 
+  const handleRefreshMealPlan = () => {
+    const hasCompletedMeals = log.meals.some((meal) => meal.completed);
+    if (hasCompletedMeals && !window.confirm('Regenerate today\'s meal plan? Completed meal checkmarks will reset.')) return;
+    playClickBeep();
+    onUpdateLog({
+      ...log,
+      meals: buildDailyMealPlan(profile, log.date, log.programDay),
+      tasks: {
+        ...log.tasks,
+        meals: false,
+      },
+    });
+  };
+
   return (
     <div className="space-y-6 pb-28 animate-in fade-in duration-300">
       {/* Daily Nutrition Summary Card */}
@@ -155,6 +195,18 @@ export const MealsPage: React.FC<MealsPageProps> = ({
         <h2 className="text-xs font-bold text-[#8e9379] uppercase tracking-widest mb-4">
           Daily Summary
         </h2>
+        <div className="mb-4 rounded-xl bg-[#010f1f] border border-[#273647] px-3 py-2 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[10px] text-[#8e9379] font-bold uppercase tracking-widest">{nutritionMode}</p>
+            <p className="text-[11px] text-[#94A3B8] mt-0.5">Meals rotate daily and avoid saved allergies/dislikes.</p>
+          </div>
+          <button
+            onClick={handleRefreshMealPlan}
+            className="shrink-0 px-3 py-2 rounded-lg bg-[#122131] border border-[#273647] text-[#00eefc] text-[11px] font-bold flex items-center gap-1"
+          >
+            <Sparkles className="w-3.5 h-3.5" /> Refresh
+          </button>
+        </div>
 
         {/* Calories Bar */}
         <div className="mb-5">
@@ -243,7 +295,7 @@ export const MealsPage: React.FC<MealsPageProps> = ({
             <TrendingUp className="w-5 h-5 text-[#c3f400] shrink-0 mt-0.5" />
             <div className="space-y-2">
               <h3 className="text-sm font-bold font-display text-[#c3f400] uppercase tracking-wider">
-                💡 Calorie Surplus Adjustment
+                Calorie Target Adjustment
               </h3>
               <p className="text-xs text-[#d4e4fa] leading-relaxed">
                 {nutritionTrend.message}
@@ -379,6 +431,14 @@ export const MealsPage: React.FC<MealsPageProps> = ({
                     <ArrowUpDown className="w-3 h-3" /> Swap / Edit
                   </button>
                 </div>
+                {profile.proofSettings.mealProof !== 'none' && (
+                  <button
+                    onClick={() => setProofMeal(meal)}
+                    className="mt-3 w-full py-2 rounded-xl bg-[#010f1f] border border-[#273647] text-xs font-bold text-[#00eefc]"
+                  >
+                    Add Meal Proof
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -495,6 +555,20 @@ export const MealsPage: React.FC<MealsPageProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {proofMeal && (
+        <ProofModal
+          task={{ id: `${log.date}_${proofMeal.id}`, title: proofMeal.name, type: 'meal', proofTypes: ['live_photo', 'upload_photo', 'note'] }}
+          date={log.date}
+          requirement={profile.proofSettings.mealProof}
+          allowPhotoUpload={profile.proofSettings.allowPhotoUpload}
+          allowLocation={false}
+          onProofSaved={(entry) => markMealComplete(proofMeal, entry.id)}
+          onCompleteWithoutProof={(reason, _note, entry) => markMealComplete(proofMeal, entry.id, reason)}
+          onSkipOptional={() => markMealComplete(proofMeal)}
+          onClose={() => setProofMeal(null)}
+        />
       )}
     </div>
   );

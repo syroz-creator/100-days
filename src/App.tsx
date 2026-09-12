@@ -232,6 +232,7 @@ export default function App() {
                 profile={appState.profile}
                 dailyLogs={appState.dailyLogs}
                 onUpdateLog={handleUpdateLog}
+                onUpdateProfile={handleUpdateProfile}
                 onSelectDate={(d) => {
                   setSelectedDate(d);
                   setActiveTab('today');

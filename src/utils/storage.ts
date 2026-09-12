@@ -15,6 +15,12 @@ import {
   getRecordingsFromIDB,
   saveRecordingToIDB,
   clearAllRecordingsFromIDB,
+  getProofEntriesFromIDB,
+  saveProofEntryToIDB,
+  clearAllProofEntriesFromIDB,
+  getHairPhotosFromIDB,
+  saveHairPhotoToIDB,
+  clearAllHairPhotosFromIDB,
 } from './indexedDB';
 
 const STORAGE_KEY = '100_DAYS_APP_STATE_V1';
@@ -37,6 +43,15 @@ function normalizeProfile(
     beginnerModeEnabled: profile?.beginnerModeEnabled ?? (profile?.trainingExperience ? profile.trainingExperience === 'beginner' : true),
     guideAcknowledgements: profile?.guideAcknowledgements || {},
     permanentExerciseReplacements: profile?.permanentExerciseReplacements || {},
+    schoolSchedule: {
+      ...DEFAULT_PROFILE.schoolSchedule,
+      ...profile?.schoolSchedule,
+    },
+    proofSettings: {
+      ...DEFAULT_PROFILE.proofSettings,
+      ...profile?.proofSettings,
+    },
+    hairReminderFrequency: profile?.hairReminderFrequency || DEFAULT_PROFILE.hairReminderFrequency,
     notifications: {
       ...DEFAULT_PROFILE.notifications,
       ...profile?.notifications,
@@ -57,21 +72,23 @@ function normalizeDailyLogs(
   logs: Record<string, DailyLog>,
   profile: UserProfile
 ): Record<string, DailyLog> {
-  const defaultMeals = buildDailyMealPlan(profile);
   return Object.fromEntries(
-    Object.entries(logs).map(([date, log]) => [
-      date,
-      {
-        ...log,
-        meals: (log.meals || defaultMeals).map((meal, index) => ({
-          ...defaultMeals[index],
-          ...meal,
-          ingredients: meal.ingredients || defaultMeals[index]?.ingredients,
-          preparation: meal.preparation || defaultMeals[index]?.preparation,
-          replacement: meal.replacement || defaultMeals[index]?.replacement,
-        })),
-      },
-    ])
+    Object.entries(logs).map(([date, log]) => {
+      const defaultMeals = buildDailyMealPlan(profile, date, log.programDay);
+      return [
+        date,
+        {
+          ...log,
+          meals: (log.meals || defaultMeals).map((meal, index) => ({
+            ...defaultMeals[index],
+            ...meal,
+            ingredients: meal.ingredients || defaultMeals[index]?.ingredients,
+            preparation: meal.preparation || defaultMeals[index]?.preparation,
+            replacement: meal.replacement || defaultMeals[index]?.replacement,
+          })),
+        },
+      ];
+    })
   );
 }
 
@@ -268,7 +285,7 @@ export function generateSampleHistory(baseProfile: UserProfile): Record<string, 
     const dailyFluctuation = (Math.sin(i * 0.8) * 0.2);
     currentWeight = Number((51.0 + weightGain + dailyFluctuation).toFixed(1));
 
-    const dayLog = createDefaultDayLog(dateKey, i);
+    const dayLog = createDefaultDayLog(dateKey, i, baseProfile);
     dayLog.weightKg = currentWeight;
     dayLog.waterCups = 8;
     dayLog.waterTotalLiters = 2.5;
@@ -304,9 +321,13 @@ export async function exportAppDataJSON(includePhotos = true): Promise<string> {
 
   let photos = [];
   let formRecordings = [];
+  let proofEntries = [];
+  let hairGrowthPhotos = [];
   if (includePhotos) {
     photos = await getPhotosFromIDB();
     formRecordings = await getRecordingsFromIDB();
+    proofEntries = await getProofEntriesFromIDB();
+    hairGrowthPhotos = await getHairPhotosFromIDB();
   }
 
   const exportPayload = {
@@ -316,6 +337,8 @@ export async function exportAppDataJSON(includePhotos = true): Promise<string> {
     state,
     photos,
     formRecordings,
+    proofEntries,
+    hairGrowthPhotos,
   };
 
   return JSON.stringify(exportPayload, null, 2);
@@ -350,6 +373,18 @@ export async function importAppDataJSON(jsonStr: string): Promise<boolean> {
       }
     }
 
+    if (Array.isArray(data.proofEntries) && data.proofEntries.length > 0) {
+      for (const entry of data.proofEntries) {
+        await saveProofEntryToIDB(entry);
+      }
+    }
+
+    if (Array.isArray(data.hairGrowthPhotos) && data.hairGrowthPhotos.length > 0) {
+      for (const photo of data.hairGrowthPhotos) {
+        await saveHairPhotoToIDB(photo);
+      }
+    }
+
     return true;
   } catch (err) {
     console.error('Import failed:', err);
@@ -364,6 +399,8 @@ export async function resetAllAppData(): Promise<void> {
   localStorage.removeItem(ONBOARDING_COMPLETED_KEY);
   await clearAllPhotosFromIDB();
   await clearAllRecordingsFromIDB();
+  await clearAllProofEntriesFromIDB();
+  await clearAllHairPhotosFromIDB();
 }
 
 export async function restartPlanData(profile: UserProfile): Promise<void> {
@@ -389,4 +426,6 @@ export async function restartPlanData(profile: UserProfile): Promise<void> {
   saveAppState(state);
   await clearAllPhotosFromIDB();
   await clearAllRecordingsFromIDB();
+  await clearAllProofEntriesFromIDB();
+  await clearAllHairPhotosFromIDB();
 }

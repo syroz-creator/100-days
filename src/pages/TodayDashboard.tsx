@@ -14,11 +14,13 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { DailyLog, UserProfile, WorkoutSplitId } from '../types';
-import { formatWeight } from '../utils/calculations';
+import { calculateCoachPlan, formatWeight } from '../utils/calculations';
 import { WORKOUT_TEMPLATES } from '../data/initialData';
 import { playClickBeep } from '../utils/sound';
 import { SilentCoachPanel } from '../components/coach/SilentCoachPanel';
 import { buildWeeklyReview, findMissedStrengthWorkout } from '../utils/beginnerFeatures';
+import { ScheduleSection } from '../components/schedule/ScheduleSection';
+import { flexibleStreak, proofCompletionPercent } from '../utils/schedule';
 
 interface TodayDashboardProps {
   log: DailyLog;
@@ -56,6 +58,9 @@ export const TodayDashboard: React.FC<TodayDashboardProps> = ({
   const missedWorkout = findMissedStrengthWorkout(dailyLogs, log.date);
   const weeklyReview = buildWeeklyReview(dailyLogs, log.date);
   const isSunday = new Date(`${log.date}T00:00:00`).getDay() === 0;
+  const flexibleStreakCount = flexibleStreak(dailyLogs, log.date);
+  const proofPercent = proofCompletionPercent(dailyLogs);
+  const calorieTarget = calculateCoachPlan(profile, dailyLogs, log).calorieTarget;
 
   // Calculate task completion percentage (6 items)
   const taskKeys: (keyof typeof log.tasks)[] = isPhotoCheckpoint
@@ -226,10 +231,18 @@ export const TodayDashboard: React.FC<TodayDashboardProps> = ({
         <div className="mt-3 bg-[#c3f400]/10 border border-[#c3f400]/30 rounded-full px-4 py-1 flex items-center gap-1.5 shadow-[0_0_12px_rgba(195,244,0,0.15)]">
           <Flame className="w-4 h-4 text-[#c3f400] fill-[#c3f400]" />
           <span className="text-xs font-bold font-display text-[#c3f400] uppercase tracking-wider">
-            {streak} Day Streak
+            {streak} Day Streak • {flexibleStreakCount} Flexible
           </span>
         </div>
       </div>
+
+      <ScheduleSection
+        log={log}
+        profile={profile}
+        onUpdateLog={onUpdateLog}
+        onUpdateProfile={onUpdateProfile}
+        onNavigateToWorkout={onNavigateToWorkout}
+      />
 
       {/* Stats Bento Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
@@ -282,6 +295,17 @@ export const TodayDashboard: React.FC<TodayDashboardProps> = ({
                 </button>
               </>
             )}
+          </div>
+        </div>
+
+        <div className="card-bg rounded-2xl p-4 flex flex-col justify-between">
+          <div className="flex justify-between items-start">
+            <span className="text-xs font-bold text-[#8e9379] uppercase tracking-widest">Proof Completion</span>
+            <Sparkles className="w-5 h-5 text-[#c3f400]" />
+          </div>
+          <div className="mt-3">
+            <span className="text-3xl font-extrabold font-display text-white">{proofPercent}%</span>
+            <p className="text-xs text-[#8e9379] mt-1">Required and optional proof tasks logged neutrally.</p>
           </div>
         </div>
 
@@ -382,7 +406,7 @@ export const TodayDashboard: React.FC<TodayDashboardProps> = ({
               </div>
               <div>
                 <h4 className="text-base font-semibold text-white">Meals</h4>
-                <p className="text-xs text-[#8e9379]">Hit protein & calorie goal ({profile.calorieGoal} kcal)</p>
+                <p className="text-xs text-[#8e9379]">Hit protein & calorie goal ({calorieTarget} kcal)</p>
               </div>
             </div>
 

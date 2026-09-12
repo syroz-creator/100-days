@@ -121,8 +121,26 @@ export function calculateCoachPlan(
   const bmr = 10 * weight + 6.25 * profile.heightCm - 5 * profile.age + sexOffset;
   const maintenance = Math.round((bmr * ACTIVITY_MULTIPLIERS[profile.dailyActivity]) / 25) * 25;
   const surplus = profile.age < 18 ? 175 : 250;
-  const calorieTarget = Math.max(1600, Math.min(4000, maintenance + surplus));
-  const protein = Math.round(weight * (profile.age < 18 ? 1.6 : 1.8));
+  const deficit = profile.age < 18 ? 175 : 350;
+  const weightDelta = profile.targetWeightKg - weight;
+  const calculatedTarget = weightDelta > 0.5
+    ? maintenance + surplus
+    : weightDelta < -0.5
+      ? maintenance - deficit
+      : maintenance;
+  const savedTarget = profile.calorieGoal > 0 ? profile.calorieGoal : calculatedTarget;
+  const calorieTarget = Math.max(
+    profile.age < 18 ? 1500 : 1400,
+    Math.min(
+      4500,
+      weightDelta > 0.5
+        ? Math.max(savedTarget, calculatedTarget)
+        : weightDelta < -0.5
+          ? Math.min(savedTarget, calculatedTarget)
+          : savedTarget
+    )
+  );
+  const protein = Math.round(weight * (weightDelta < -0.5 ? 2 : profile.age < 18 ? 1.6 : 1.8));
   const fat = Math.round(weight * 0.9);
   const carbs = Math.max(130, Math.round((calorieTarget - protein * 4 - fat * 9) / 4));
   const water = Number(Math.max(2, Math.min(4, weight * 0.035)).toFixed(1));

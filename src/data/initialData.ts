@@ -1,4 +1,6 @@
 import { UserProfile, WorkoutTemplate, MealItem, WorkoutSplitId, ReminderSettings } from '../types';
+import { calculateCoachPlan } from '../utils/calculations';
+import { buildDefaultScheduleTasks } from '../utils/schedule';
 
 export const DEFAULT_REMINDERS: ReminderSettings = {
   morningCheckIn: { enabled: true, time: '07:05' },
@@ -6,6 +8,15 @@ export const DEFAULT_REMINDERS: ReminderSettings = {
   preWorkout: { enabled: true, time: '16:30' },
   workoutStart: { enabled: true, time: '17:00' },
   water: { enabled: true, time: '12:00' },
+  leaveForSchool: { enabled: false, time: '07:30' },
+  schoolFinished: { enabled: false, time: '15:30' },
+  directGym: { enabled: false, time: '15:45' },
+  homework: { enabled: false, time: '17:30' },
+  subject14: { enabled: false, time: '19:00' },
+  schoolPrep: { enabled: false, time: '21:15' },
+  hairGrowthPhotos: { enabled: false, time: '09:30' },
+  missedTasks: { enabled: false, time: '20:30' },
+  neverMissTwice: { enabled: false, time: '18:00' },
   bedtime: { enabled: true, time: '22:30' },
   progressPhotos: { enabled: true, time: '07:10' },
   weeklyReview: { enabled: true, time: '09:00' },
@@ -48,6 +59,27 @@ export const DEFAULT_PROFILE: UserProfile = {
   beginnerModeEnabled: true,
   guideAcknowledgements: {},
   permanentExerciseReplacements: {},
+  schoolSchedule: {
+    schoolDays: [0, 1, 2, 3, 4],
+    schoolStartTime: '08:00',
+    schoolEndTime: '15:30',
+    travelMinutesSchoolHome: 25,
+    travelMinutesHomeGym: 20,
+    travelMinutesSchoolGym: 20,
+    preferredGymDays: [0, 2, 4],
+    wakeTime: '07:00',
+    bedtime: '23:00',
+    scheduleSetupCompleted: false,
+    scheduleSetupDismissed: false,
+  },
+  proofSettings: {
+    workoutProof: 'optional',
+    scheduleTaskProof: 'optional',
+    mealProof: 'optional',
+    allowPhotoUpload: true,
+    allowLocationCheckIn: false,
+  },
+  hairReminderFrequency: 'weekly',
   notifications: {
     workoutReminders: true,
     hydrationAlerts: true,
@@ -669,47 +701,374 @@ export const DEFAULT_HALAL_MEALS: MealItem[] = BASE_HALAL_MEALS.map((meal) => ({
   ...MEAL_DETAILS[meal.id],
 }));
 
+const ROTATING_HALAL_MEALS: MealItem[] = [
+  {
+    id: 'breakfast_oats_berries',
+    time: '07:15',
+    name: 'Protein Oats & Berries',
+    mealType: 'Breakfast',
+    description: 'Rolled oats with Greek yogurt, berries, honey, and cinnamon.',
+    portion: '70g oats, 200g yogurt, 100g berries',
+    calories: 540,
+    protein: 34,
+    carbs: 78,
+    fat: 10,
+    ingredients: [
+      { name: 'Rolled oats', amount: 70, unit: 'g', calories: 260, protein: 9, carbs: 46, fat: 5 },
+      { name: 'Greek yogurt', amount: 200, unit: 'g', calories: 160, protein: 20, carbs: 11, fat: 4 },
+      { name: 'Mixed berries', amount: 100, unit: 'g', calories: 60, protein: 1, carbs: 14, fat: 0 },
+      { name: 'Honey', amount: 2, unit: 'tsp', calories: 60, protein: 0, carbs: 10, fat: 0 },
+    ],
+    preparation: 'Mix oats and yogurt, top with berries and honey, then chill or eat immediately.',
+    replacement: 'Use rice cakes with yogurt and berries for a lighter breakfast.',
+    completed: false,
+  },
+  {
+    id: 'breakfast_tuna_toast',
+    time: '07:15',
+    name: 'Tuna Egg Toast Plate',
+    mealType: 'Breakfast',
+    description: 'Halal tuna, eggs, whole-wheat toast, cucumber, and tomato.',
+    portion: '1 tuna can, 2 eggs, 2 toast slices',
+    calories: 560,
+    protein: 48,
+    carbs: 42,
+    fat: 20,
+    ingredients: [
+      { name: 'Tuna in water', amount: 120, unit: 'g', calories: 140, protein: 30, carbs: 0, fat: 1 },
+      { name: 'Whole eggs', amount: 2, unit: 'item', calories: 140, protein: 12, carbs: 1, fat: 10 },
+      { name: 'Whole-wheat bread', amount: 2, unit: 'slice', calories: 180, protein: 8, carbs: 32, fat: 3 },
+      { name: 'Cucumber and tomato', amount: 150, unit: 'g', calories: 40, protein: 1, carbs: 8, fat: 0 },
+      { name: 'Olive oil', amount: 10, unit: 'ml', calories: 60, protein: 0, carbs: 0, fat: 6 },
+    ],
+    preparation: 'Toast bread, cook eggs, and plate with tuna and vegetables.',
+    replacement: 'Swap tuna for chicken slices or tofu if preferred.',
+    completed: false,
+  },
+  {
+    id: 'snack_cottage_crackers',
+    time: '10:30',
+    name: 'Cottage Cheese Crunch Box',
+    mealType: 'Morning Snack',
+    description: 'Cottage cheese with whole-grain crackers and berries.',
+    portion: '200g cottage cheese, 35g crackers, 80g berries',
+    calories: 360,
+    protein: 30,
+    carbs: 38,
+    fat: 8,
+    ingredients: [
+      { name: 'Cottage cheese', amount: 200, unit: 'g', calories: 190, protein: 26, carbs: 8, fat: 6 },
+      { name: 'Whole-grain crackers', amount: 35, unit: 'g', calories: 130, protein: 3, carbs: 24, fat: 2 },
+      { name: 'Mixed berries', amount: 80, unit: 'g', calories: 40, protein: 1, carbs: 9, fat: 0 },
+    ],
+    preparation: 'Keep cold until snack time and eat crackers separately so they stay crisp.',
+    replacement: 'Use Greek yogurt and rice cakes for similar protein and carbs.',
+    completed: false,
+  },
+  {
+    id: 'snack_smoothie',
+    time: '10:30',
+    name: 'Date Protein Smoothie',
+    mealType: 'Morning Snack',
+    description: 'Milk, Greek yogurt, dates, oats, and cocoa blended smooth.',
+    portion: '250ml milk, 150g yogurt, 2 dates, 30g oats',
+    calories: 430,
+    protein: 28,
+    carbs: 62,
+    fat: 8,
+    ingredients: [
+      { name: 'Whole milk', amount: 250, unit: 'ml', calories: 150, protein: 10, carbs: 12, fat: 6 },
+      { name: 'Greek yogurt', amount: 150, unit: 'g', calories: 120, protein: 15, carbs: 8, fat: 3 },
+      { name: 'Dates', amount: 2, unit: 'item', calories: 110, protein: 1, carbs: 30, fat: 0 },
+      { name: 'Rolled oats', amount: 30, unit: 'g', calories: 110, protein: 4, carbs: 20, fat: 2 },
+    ],
+    preparation: 'Blend with ice and drink within one hour.',
+    replacement: 'Use berries instead of dates if you want a lower-sugar option.',
+    completed: false,
+  },
+  {
+    id: 'lunch_turkey_pasta',
+    time: '13:45',
+    name: 'Halal Turkey Pasta Bowl',
+    mealType: 'Lunch',
+    description: 'Lean halal turkey, pasta, tomato sauce, spinach, and olive oil.',
+    portion: '180g turkey, 250g cooked pasta',
+    calories: 720,
+    protein: 56,
+    carbs: 88,
+    fat: 16,
+    ingredients: [
+      { name: 'Halal lean turkey, cooked', amount: 180, unit: 'g', calories: 290, protein: 46, carbs: 0, fat: 10 },
+      { name: 'Pasta, cooked', amount: 250, unit: 'g', calories: 330, protein: 10, carbs: 72, fat: 2 },
+      { name: 'Tomato sauce', amount: 120, unit: 'g', calories: 60, protein: 2, carbs: 12, fat: 1 },
+      { name: 'Spinach', amount: 80, unit: 'g', calories: 20, protein: 2, carbs: 3, fat: 0 },
+      { name: 'Olive oil', amount: 5, unit: 'ml', calories: 20, protein: 0, carbs: 0, fat: 3 },
+    ],
+    preparation: 'Cook turkey fully, mix with pasta and sauce, then fold in spinach.',
+    replacement: 'Swap pasta for rice or potatoes with similar calories.',
+    completed: false,
+  },
+  {
+    id: 'lunch_chicken_wrap',
+    time: '13:45',
+    name: 'Chicken Shawarma Wrap Plate',
+    mealType: 'Lunch',
+    description: 'Halal chicken, tortilla wrap, rice, salad, and tahini yogurt sauce.',
+    portion: '170g chicken, 1 wrap, 180g rice',
+    calories: 690,
+    protein: 54,
+    carbs: 78,
+    fat: 17,
+    ingredients: [
+      { name: 'Halal chicken breast, cooked', amount: 170, unit: 'g', calories: 280, protein: 47, carbs: 0, fat: 7 },
+      { name: 'Tortilla wrap', amount: 1, unit: 'item', calories: 180, protein: 5, carbs: 32, fat: 4 },
+      { name: 'Basmati rice, cooked', amount: 180, unit: 'g', calories: 180, protein: 3, carbs: 42, fat: 0 },
+      { name: 'Salad vegetables', amount: 120, unit: 'g', calories: 35, protein: 1, carbs: 7, fat: 0 },
+      { name: 'Tahini yogurt sauce', amount: 1, unit: 'tbsp', calories: 55, protein: 2, carbs: 2, fat: 5 },
+    ],
+    preparation: 'Season chicken with shawarma spices and wrap with salad. Keep sauce measured.',
+    replacement: 'Use beef strips, tofu, or extra rice depending on your preference.',
+    completed: false,
+  },
+  {
+    id: 'pre_rice_cakes_yogurt',
+    time: '16:15',
+    name: 'Rice Cakes & Yogurt Pre-Gym',
+    mealType: 'Pre-Workout',
+    description: 'Rice cakes with honey plus Greek yogurt for quick carbs and protein.',
+    portion: '4 rice cakes, 170g yogurt, 2 tsp honey',
+    calories: 330,
+    protein: 20,
+    carbs: 58,
+    fat: 2,
+    ingredients: [
+      { name: 'Rice cakes', amount: 4, unit: 'item', calories: 140, protein: 3, carbs: 30, fat: 1 },
+      { name: 'Greek yogurt', amount: 170, unit: 'g', calories: 130, protein: 17, carbs: 9, fat: 3 },
+      { name: 'Honey', amount: 2, unit: 'tsp', calories: 60, protein: 0, carbs: 10, fat: 0 },
+    ],
+    preparation: 'Eat 45-75 minutes before training.',
+    replacement: 'Use dates or an apple for the carb source.',
+    completed: false,
+  },
+  {
+    id: 'pre_chicken_potato',
+    time: '16:15',
+    name: 'Chicken Potato Pre-Gym',
+    mealType: 'Pre-Workout',
+    description: 'Light chicken and potato box with a little salt for training fuel.',
+    portion: '100g chicken, 220g potato',
+    calories: 360,
+    protein: 30,
+    carbs: 48,
+    fat: 5,
+    ingredients: [
+      { name: 'Halal chicken breast, cooked', amount: 100, unit: 'g', calories: 165, protein: 28, carbs: 0, fat: 4 },
+      { name: 'Boiled potatoes', amount: 220, unit: 'g', calories: 180, protein: 4, carbs: 42, fat: 0 },
+      { name: 'Olive oil', amount: 3, unit: 'ml', calories: 15, protein: 0, carbs: 0, fat: 2 },
+    ],
+    preparation: 'Keep seasoning simple and avoid a heavy sauce before training.',
+    replacement: 'Use rice instead of potato if that digests better.',
+    completed: false,
+  },
+  {
+    id: 'dinner_salmon_rice',
+    time: '18:30',
+    name: 'Salmon Rice Dinner',
+    mealType: 'Dinner',
+    description: 'Fish fillet with rice, vegetables, and olive oil.',
+    portion: '190g fish, 260g rice, vegetables',
+    calories: 700,
+    protein: 50,
+    carbs: 74,
+    fat: 22,
+    ingredients: [
+      { name: 'Fish fillet, cooked', amount: 190, unit: 'g', calories: 330, protein: 42, carbs: 0, fat: 18 },
+      { name: 'Basmati rice, cooked', amount: 260, unit: 'g', calories: 260, protein: 5, carbs: 65, fat: 0 },
+      { name: 'Mixed vegetables', amount: 180, unit: 'g', calories: 70, protein: 4, carbs: 12, fat: 1 },
+      { name: 'Olive oil', amount: 7, unit: 'ml', calories: 40, protein: 0, carbs: 0, fat: 5 },
+    ],
+    preparation: 'Bake or pan-sear the fish and serve with rice and vegetables.',
+    replacement: 'Use halal chicken thigh or lean beef if fish is not preferred.',
+    completed: false,
+  },
+  {
+    id: 'dinner_chili_potato',
+    time: '18:30',
+    name: 'Halal Beef Chili Potato',
+    mealType: 'Dinner',
+    description: 'Lean halal beef chili over potato with vegetables.',
+    portion: '170g beef, 280g potato, beans, tomato',
+    calories: 740,
+    protein: 55,
+    carbs: 76,
+    fat: 22,
+    ingredients: [
+      { name: 'Halal lean beef, cooked', amount: 170, unit: 'g', calories: 340, protein: 45, carbs: 0, fat: 18 },
+      { name: 'Boiled potatoes', amount: 280, unit: 'g', calories: 230, protein: 5, carbs: 53, fat: 0 },
+      { name: 'Kidney beans', amount: 100, unit: 'g', calories: 120, protein: 8, carbs: 20, fat: 1 },
+      { name: 'Tomato and peppers', amount: 150, unit: 'g', calories: 50, protein: 2, carbs: 10, fat: 0 },
+    ],
+    preparation: 'Cook beef fully with tomato, peppers, and beans. Serve over potato.',
+    replacement: 'Use turkey mince or tofu crumbles if you do not want beef.',
+    completed: false,
+  },
+  {
+    id: 'sleep_casein_bowl',
+    time: '21:30',
+    name: 'Greek Yogurt Sleep Bowl',
+    mealType: 'Pre-Sleep',
+    description: 'Greek yogurt with oats, cinnamon, and berries.',
+    portion: '220g yogurt, 35g oats, 80g berries',
+    calories: 340,
+    protein: 30,
+    carbs: 42,
+    fat: 6,
+    ingredients: [
+      { name: 'Greek yogurt', amount: 220, unit: 'g', calories: 175, protein: 24, carbs: 12, fat: 4 },
+      { name: 'Rolled oats', amount: 35, unit: 'g', calories: 125, protein: 5, carbs: 24, fat: 2 },
+      { name: 'Mixed berries', amount: 80, unit: 'g', calories: 40, protein: 1, carbs: 9, fat: 0 },
+    ],
+    preparation: 'Mix and chill for 10 minutes before eating.',
+    replacement: 'Use warm milk with oats if you prefer a hot option.',
+    completed: false,
+  },
+  {
+    id: 'sleep_eggs_toast',
+    time: '21:30',
+    name: 'Light Egg Toast Plate',
+    mealType: 'Pre-Sleep',
+    description: 'Eggs, toast, and vegetables for a simple late protein meal.',
+    portion: '2 eggs, 1 toast slice, vegetables',
+    calories: 310,
+    protein: 20,
+    carbs: 24,
+    fat: 14,
+    ingredients: [
+      { name: 'Whole eggs', amount: 2, unit: 'item', calories: 140, protein: 12, carbs: 1, fat: 10 },
+      { name: 'Whole-wheat bread', amount: 1, unit: 'slice', calories: 90, protein: 4, carbs: 16, fat: 1 },
+      { name: 'Vegetables', amount: 150, unit: 'g', calories: 50, protein: 3, carbs: 10, fat: 0 },
+      { name: 'Olive oil', amount: 5, unit: 'ml', calories: 30, protein: 0, carbs: 0, fat: 3 },
+    ],
+    preparation: 'Cook eggs lightly and keep the meal simple before sleep.',
+    replacement: 'Use cottage cheese or tofu scramble for similar protein.',
+    completed: false,
+  },
+];
+
 function addMinutes(time: string, minutes: number): string {
   const [hours = 0, mins = 0] = time.split(':').map(Number);
   const total = (hours * 60 + mins + minutes + 1440) % 1440;
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
-export function buildDailyMealPlan(profile: UserProfile): MealItem[] {
-  const mealIndexesByCount: Record<number, number[]> = {
-    3: [0, 2, 4],
-    4: [0, 2, 3, 4],
-    5: [0, 1, 2, 3, 4],
-    6: [0, 1, 2, 3, 4, 5],
+function hashMealSeed(value: string): number {
+  return value.split('').reduce((hash, character) => ((hash << 5) - hash + character.charCodeAt(0)) | 0, 0);
+}
+
+function includesAvoidedFood(text: string, avoidTokens: string[]): boolean {
+  const normalized = text.toLowerCase();
+  return avoidTokens.some((token) => new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}s?\\b`, 'i').test(normalized));
+}
+
+function replaceAvoidedFood(text: string, avoid: string): string {
+  let adapted = text;
+  const replacementRules: [RegExp, string][] = [
+    [/banana/gi, 'apple'],
+    [/peanuts?|peanut butter|almonds?|walnuts?|nuts?/gi, 'sunflower seed butter'],
+    [/whole milk|\bmilk\b/gi, 'fortified soy drink'],
+    [/greek yogurt|cottage cheese|\byogurt\b/gi, 'soy yogurt'],
+    [/whole eggs|\beggs?\b/gi, 'tofu scramble'],
+    [/whole-wheat bread|\bbread\b|tortilla wrap/gi, 'gluten-free bread'],
+    [/basmati rice|\brice\b/gi, 'potatoes'],
+    [/chicken/gi, 'turkey'],
+    [/beef/gi, 'chicken'],
+    [/\bfish\b|salmon|tuna/gi, 'chicken'],
+    [/honey/gi, 'date syrup'],
+    [/oats?|granola/gi, 'rice flakes'],
+  ];
+  replacementRules.forEach(([pattern, replacement]) => {
+    if (pattern.test(avoid)) {
+      adapted = adapted.replace(pattern, replacement);
+    }
+  });
+  return adapted;
+}
+
+function adaptTextForProfile(text: string, profile: UserProfile, avoid: string): string {
+  let adapted = replaceAvoidedFood(text, avoid);
+  if (/peanut|nut/.test(avoid)) adapted = adapted.replace(/Natural peanut butter|Mixed almonds and walnuts|peanut butter|almonds|walnuts|nuts/gi, 'sunflower seed butter');
+  if (/milk|dairy|lactose/.test(avoid) || profile.dietPreference === 'vegan') adapted = adapted.replace(/Whole milk|Greek yogurt|Cottage cheese|\bmilk\b|\byogurt\b|\bcheese\b/gi, 'fortified soy alternative');
+  if (/egg/.test(avoid) || profile.dietPreference === 'vegan') adapted = adapted.replace(/Whole eggs|\beggs?\b/gi, 'firm tofu scramble');
+  if (/wheat|gluten/.test(avoid)) adapted = adapted.replace(/Whole-wheat bread|Tortilla wrap|whole-grain crackers|\bbread\b/gi, 'gluten-free alternative');
+  if (profile.dietPreference === 'vegetarian' || profile.dietPreference === 'vegan') adapted = adapted.replace(/Halal chicken breast, cooked|Halal lean beef steak, cooked|Halal lean turkey, cooked|Halal lean beef, cooked|\bchicken\b|\bbeef\b|\bturkey\b|\bfish\b|\bsalmon\b|\btuna\b/gi, profile.dietPreference === 'vegan' ? 'tempeh or firm tofu' : 'paneer or firm tofu');
+  if (profile.dietPreference === 'keto') adapted = adapted.replace(/Basmati rice, cooked|Roasted potatoes|Boiled potatoes|Pasta, cooked|Whole-wheat bread|Oat granola|Rolled oats|Rice cakes/gi, 'low-carbohydrate vegetable alternative');
+  if (profile.dietPreference === 'paleo') adapted = adapted.replace(/Whole-wheat bread|Oat granola|Rolled oats|Pasta, cooked/gi, 'paleo seed and fruit alternative');
+  return adapted;
+}
+
+function scaleMeal(meal: MealItem, scale: number, profile: UserProfile, avoid: string): MealItem {
+  const ingredients = meal.ingredients?.map((ingredient) => ({
+    ...ingredient,
+    name: adaptTextForProfile(ingredient.name, profile, avoid),
+    amount: Number((ingredient.amount * scale).toFixed(ingredient.unit === 'item' || ingredient.unit === 'slice' ? 1 : 0)),
+    calories: Math.round(ingredient.calories * scale),
+    protein: Math.round(ingredient.protein * scale),
+    carbs: Math.round(ingredient.carbs * scale),
+    fat: Math.round(ingredient.fat * scale),
+  }));
+  return {
+    ...meal,
+    name: adaptTextForProfile(meal.name, profile, avoid),
+    description: adaptTextForProfile(meal.description, profile, avoid),
+    portion: adaptTextForProfile(meal.portion, profile, avoid),
+    ingredients,
+    preparation: adaptTextForProfile(meal.preparation || 'Cook ingredients safely and serve at the planned time.', profile, avoid),
+    replacement: adaptTextForProfile(meal.replacement || 'Use a nutritionally similar halal-safe replacement.', profile, avoid),
+    calories: ingredients?.reduce((sum, item) => sum + item.calories, 0) ?? Math.round(meal.calories * scale),
+    protein: ingredients?.reduce((sum, item) => sum + item.protein, 0) ?? Math.round(meal.protein * scale),
+    carbs: ingredients?.reduce((sum, item) => sum + item.carbs, 0) ?? Math.round(meal.carbs * scale),
+    fat: ingredients?.reduce((sum, item) => sum + item.fat, 0) ?? Math.round(meal.fat * scale),
+    completed: false,
+  };
+}
+
+export function buildDailyMealPlan(profile: UserProfile, dateStr = new Date().toISOString().split('T')[0], programDay = 1): MealItem[] {
+  const mealTypesByCount: Record<number, MealItem['mealType'][]> = {
+    3: ['Breakfast', 'Lunch', 'Dinner'],
+    4: ['Breakfast', 'Lunch', 'Pre-Workout', 'Dinner'],
+    5: ['Breakfast', 'Morning Snack', 'Lunch', 'Pre-Workout', 'Dinner'],
+    6: ['Breakfast', 'Morning Snack', 'Lunch', 'Pre-Workout', 'Dinner', 'Pre-Sleep'],
   };
   const count = Math.max(3, Math.min(6, profile.preferredMeals || 6));
-  const avoid = [...profile.allergies, ...profile.dislikedFoods, ...profile.dietaryRestrictions]
-    .join(' ')
-    .toLowerCase();
-  const adaptIngredient = (name: string) => {
-    let adapted = name;
-    if (/peanut|nut/.test(avoid)) adapted = adapted.replace(/Natural peanut butter|Mixed almonds and walnuts|peanut butter|almonds|walnuts/gi, 'sunflower seed butter');
-    if (/milk|dairy|lactose/.test(avoid) || profile.dietPreference === 'vegan') adapted = adapted.replace(/Whole milk|Greek yogurt|\bmilk\b|\byogurt\b/gi, 'fortified soy alternative');
-    if (/egg/.test(avoid) || profile.dietPreference === 'vegan') adapted = adapted.replace(/Whole eggs|\beggs?\b/gi, 'firm tofu scramble');
-    if (/wheat|gluten/.test(avoid)) adapted = adapted.replace(/Whole-wheat bread/gi, 'Gluten-free bread');
-    if (profile.dietPreference === 'vegetarian' || profile.dietPreference === 'vegan') adapted = adapted.replace(/Halal chicken breast, cooked|Halal lean beef steak, cooked|\bchicken\b|\bbeef\b|\bfish\b/gi, profile.dietPreference === 'vegan' ? 'tempeh or firm tofu' : 'paneer or firm tofu');
-    if (profile.dietPreference === 'keto') adapted = adapted.replace(/Basmati rice, cooked|Roasted potatoes|Whole-wheat bread|Oat granola|Rolled oats/gi, 'Low-carbohydrate vegetable alternative');
-    if (profile.dietPreference === 'paleo') adapted = adapted.replace(/Whole-wheat bread|Oat granola|Rolled oats/gi, 'Paleo seed and fruit alternative');
-    return adapted;
-  };
-  const selected = mealIndexesByCount[count].map((index) => {
-    const meal = DEFAULT_HALAL_MEALS[index];
+  const avoidTokens = [...profile.allergies, ...profile.dislikedFoods]
+    .flatMap((entry) => entry.toLowerCase().split(/[,\s/]+/))
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 2 && !['and', 'the', 'food', 'foods'].includes(entry));
+  const avoid = [...profile.allergies, ...profile.dislikedFoods, ...profile.dietaryRestrictions].join(' ').toLowerCase();
+  const pool = [...DEFAULT_HALAL_MEALS, ...ROTATING_HALAL_MEALS];
+  const seed = Math.abs(hashMealSeed(`${dateStr}:${programDay}:${profile.name}:${profile.targetWeightKg}:${avoidTokens.join('|')}`));
+  const selected = mealTypesByCount[count].map((mealType, index) => {
+    const candidates = pool.filter((meal) => {
+      if (meal.mealType !== mealType) return false;
+      const searchable = [
+        meal.name,
+        meal.description,
+        meal.portion,
+        meal.preparation,
+        meal.replacement,
+        ...(meal.ingredients || []).map((ingredient) => ingredient.name),
+      ].join(' ');
+      return !includesAvoidedFood(searchable, avoidTokens);
+    });
+    const fallback = pool.filter((meal) => meal.mealType === mealType);
+    const list = candidates.length ? candidates : fallback;
     return {
-      ...meal,
-      name: `${meal.mealType} Plan`,
-      description: 'Personalized halal-safe meal using the measured ingredients below.',
-      ingredients: meal.ingredients?.map((ingredient) => ({ ...ingredient, name: adaptIngredient(ingredient.name) })),
-      preparation: adaptIngredient(meal.preparation || 'Cook ingredients safely and serve at the planned time.'),
-      replacement: adaptIngredient(meal.replacement || 'Use a nutritionally similar halal-safe replacement.'),
+      ...list[(seed + index * 7) % list.length],
     };
   });
   const baseCalories = selected.reduce((sum, meal) => sum + meal.calories, 0);
-  const scale = Math.max(0.75, Math.min(1.3, profile.calorieGoal / baseCalories));
+  const coachTarget = calculateCoachPlan(profile, {}).calorieTarget;
+  const scale = Math.max(0.65, Math.min(1.45, coachTarget / baseCalories));
   const schedule = [
     addMinutes(profile.wakeTime, 15),
     addMinutes(profile.schoolStartTime, 150),
@@ -718,26 +1077,21 @@ export function buildDailyMealPlan(profile: UserProfile): MealItem[] {
     addMinutes(profile.workoutEndTime, 15),
     addMinutes(profile.sleepTime, -75),
   ];
+  const timeByMealType: Partial<Record<MealItem['mealType'], string>> = {
+    Breakfast: schedule[0],
+    'Morning Snack': schedule[1],
+    Lunch: schedule[2],
+    'Pre-Workout': schedule[3],
+    Dinner: schedule[4],
+    'Pre-Sleep': schedule[5],
+  };
 
   return selected.map((meal, index) => {
-    const ingredients = meal.ingredients?.map((ingredient) => ({
-      ...ingredient,
-      amount: Number((ingredient.amount * scale).toFixed(ingredient.unit === 'item' || ingredient.unit === 'slice' ? 1 : 0)),
-      calories: Math.round(ingredient.calories * scale),
-      protein: Math.round(ingredient.protein * scale),
-      carbs: Math.round(ingredient.carbs * scale),
-      fat: Math.round(ingredient.fat * scale),
-    }));
+    const scaled = scaleMeal(meal, scale, profile, avoid);
     return {
-      ...meal,
-      id: `${meal.id}_${count}`,
-      time: schedule[Math.min(index, schedule.length - 1)],
-      ingredients,
-      calories: ingredients?.reduce((sum, item) => sum + item.calories, 0) ?? Math.round(meal.calories * scale),
-      protein: ingredients?.reduce((sum, item) => sum + item.protein, 0) ?? Math.round(meal.protein * scale),
-      carbs: ingredients?.reduce((sum, item) => sum + item.carbs, 0) ?? Math.round(meal.carbs * scale),
-      fat: ingredients?.reduce((sum, item) => sum + item.fat, 0) ?? Math.round(meal.fat * scale),
-      completed: false,
+      ...scaled,
+      id: `${meal.id}_${count}_${dateStr.replace(/-/g, '')}`,
+      time: timeByMealType[meal.mealType] || schedule[Math.min(index, schedule.length - 1)],
     };
   });
 }
@@ -786,8 +1140,10 @@ export function createDefaultDayLog(
       sleep: false,
       photo: false,
     },
-    meals: buildDailyMealPlan(profile),
+    meals: buildDailyMealPlan(profile, dateStr, programDay),
     workoutCompleted: false,
     workoutSplitId: splitId,
+    scheduleMode: 'normal',
+    scheduledTasks: buildDefaultScheduleTasks(dateStr, profile, 'normal'),
   };
 }

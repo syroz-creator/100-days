@@ -25,6 +25,7 @@ import { computeWeightTrends, kgToLbs } from '../utils/calculations';
 import { getPhotosFromIDB } from '../utils/indexedDB';
 import { ComparisonSlider } from '../components/progress/ComparisonSlider';
 import { PhotoCheckpointModal } from '../components/progress/PhotoCheckpointModal';
+import { HairGrowthTracker } from '../components/progress/HairGrowthTracker';
 
 interface ProgressPageProps {
   log: DailyLog;
@@ -32,6 +33,7 @@ interface ProgressPageProps {
   dailyLogs: Record<string, DailyLog>;
   onSelectDate: (dateStr: string) => void;
   onUpdateLog: (log: DailyLog) => void;
+  onUpdateProfile: (profile: UserProfile) => void;
 }
 
 export const ProgressPage: React.FC<ProgressPageProps> = ({
@@ -40,8 +42,10 @@ export const ProgressPage: React.FC<ProgressPageProps> = ({
   dailyLogs,
   onSelectDate,
   onUpdateLog,
+  onUpdateProfile,
 }) => {
   const [selectedRange, setSelectedRange] = useState<'30' | '100'>('30');
+  const [progressSection, setProgressSection] = useState<'gym' | 'hair'>('gym');
   const [photos, setPhotos] = useState<CheckpointPhoto[]>([]);
   const [selectedCheckpointDay, setSelectedCheckpointDay] = useState<number | null>(null);
   const [selectedPose, setSelectedPose] = useState<PoseType>('front');
@@ -128,6 +132,16 @@ export const ProgressPage: React.FC<ProgressPageProps> = ({
           Day {log.programDay} of 100 • Complete transformation analytics
         </p>
       </div>
+
+      <div className="grid grid-cols-2 gap-2 bg-[#010f1f] border border-[#273647] rounded-2xl p-1">
+        <button onClick={() => setProgressSection('gym')} className={`py-2 rounded-xl text-xs font-bold ${progressSection === 'gym' ? 'bg-[#c3f400] text-[#050810]' : 'text-[#94A3B8]'}`}>Gym Progress</button>
+        <button onClick={() => setProgressSection('hair')} className={`py-2 rounded-xl text-xs font-bold ${progressSection === 'hair' ? 'bg-[#00eefc] text-[#050810]' : 'text-[#94A3B8]'}`}>Hair Growth</button>
+      </div>
+
+      {progressSection === 'hair' ? (
+        <HairGrowthTracker profile={profile} onUpdateProfile={onUpdateProfile} />
+      ) : (
+        <>
 
       {/* Weight Trend Recharts Area Chart */}
       <section className="bg-[#0E1421] border border-[#1E293B] rounded-2xl p-4 sm:p-5 shadow-xl relative overflow-hidden">
@@ -366,7 +380,7 @@ export const ProgressPage: React.FC<ProgressPageProps> = ({
                     <img
                       src={dayPhotoObj.imageDataUrl}
                       alt={`Day ${chkDay}`}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain"
                     />
                   ) : (
                     <div className="flex flex-col items-center justify-center text-[#8e9379] gap-1 p-2 text-center">
@@ -399,6 +413,8 @@ export const ProgressPage: React.FC<ProgressPageProps> = ({
           onClose={() => setSelectedCheckpointDay(null)}
           onPhotosUpdated={refreshPhotos}
         />
+      )}
+        </>
       )}
     </div>
   );

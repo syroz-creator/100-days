@@ -38,6 +38,8 @@ export async function registerPushNotifications(profile: UserProfile): Promise<v
       reminders: profile.reminders,
       mealTimes: buildDailyMealPlan(profile).map((meal) => ({ time: meal.time, name: meal.name })),
       gymDays: profile.gymDays,
+      schoolSchedule: profile.schoolSchedule,
+      hairReminderFrequency: profile.hairReminderFrequency,
       startDate: profile.startDate,
       planStarted: profile.planStarted,
       planPaused: profile.planPaused,

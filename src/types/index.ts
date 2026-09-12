@@ -1,9 +1,28 @@
 export type UnitSystem = 'kg' | 'lbs';
 export type PoseType = 'front' | 'side' | 'back' | 'biceps';
+export type HairPoseType = 'front' | 'left' | 'right' | 'back';
 export type Sex = 'male' | 'female' | 'other' | 'prefer_not';
 export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'very_active';
 export type TrainingExperience = 'beginner' | 'intermediate' | 'advanced';
 export type PainType = 'none' | 'normal_soreness' | 'discomfort' | 'sharp_pain' | 'joint_pain';
+export type ProofRequirement = 'required' | 'optional' | 'none';
+export type ProofType = 'live_photo' | 'upload_photo' | 'note' | 'checklist' | 'timer' | 'location';
+export type CompleteWithoutProofReason =
+  | 'forgot_photo'
+  | 'camera_unavailable'
+  | 'permission_denied'
+  | 'completed_elsewhere'
+  | 'other';
+export type ScheduleTaskType =
+  | 'school'
+  | 'gym'
+  | 'homework'
+  | 'meal'
+  | 'sleep'
+  | 'free_time'
+  | 'subject14'
+  | 'prep';
+export type DailyScheduleMode = 'normal' | 'busy_school' | 'low_energy';
 export type ReplacementReason =
   | 'machine_occupied'
   | 'equipment_unavailable'
@@ -16,6 +35,15 @@ export type ReminderType =
   | 'preWorkout'
   | 'workoutStart'
   | 'water'
+  | 'leaveForSchool'
+  | 'schoolFinished'
+  | 'directGym'
+  | 'homework'
+  | 'subject14'
+  | 'schoolPrep'
+  | 'hairGrowthPhotos'
+  | 'missedTasks'
+  | 'neverMissTwice'
   | 'bedtime'
   | 'progressPhotos'
   | 'weeklyReview';
@@ -26,6 +54,28 @@ export interface ReminderSetting {
 }
 
 export type ReminderSettings = Record<ReminderType, ReminderSetting>;
+
+export interface SchoolScheduleSettings {
+  schoolDays: number[];
+  schoolStartTime: string;
+  schoolEndTime: string;
+  travelMinutesSchoolHome: number;
+  travelMinutesHomeGym: number;
+  travelMinutesSchoolGym: number;
+  preferredGymDays: number[];
+  wakeTime: string;
+  bedtime: string;
+  scheduleSetupCompleted: boolean;
+  scheduleSetupDismissed: boolean;
+}
+
+export interface ProofSettings {
+  workoutProof: ProofRequirement;
+  scheduleTaskProof: ProofRequirement;
+  mealProof: ProofRequirement;
+  allowPhotoUpload: boolean;
+  allowLocationCheckIn: boolean;
+}
 
 export interface UserProfile {
   name: string;
@@ -64,6 +114,9 @@ export interface UserProfile {
   beginnerModeEnabled: boolean;
   guideAcknowledgements: Record<string, boolean>;
   permanentExerciseReplacements: Record<string, string>;
+  schoolSchedule: SchoolScheduleSettings;
+  proofSettings: ProofSettings;
+  hairReminderFrequency: 'daily' | 'weekly' | 'monthly';
   reminders: ReminderSettings;
   notifications: {
     workoutReminders: boolean;
@@ -78,6 +131,22 @@ export interface UserProfile {
   planPaused: boolean;
   pauseStartedAt?: string;
   avatarUrl?: string;
+}
+
+export interface ScheduledTask {
+  id: string;
+  date: string;
+  title: string;
+  type: ScheduleTaskType;
+  startTime: string;
+  endTime: string;
+  proofRequirement: ProofRequirement;
+  proofTypes: ProofType[];
+  status: 'pending' | 'active' | 'completed' | 'skipped' | 'rescheduled';
+  proofEntryIds?: string[];
+  completedWithoutProof?: boolean;
+  completedWithoutProofReason?: CompleteWithoutProofReason;
+  note?: string;
 }
 
 export interface BodyCheck {
@@ -223,8 +292,11 @@ export interface DailyLog {
   workoutSplitId?: WorkoutSplitId;
   missedWorkoutDecision?: 'reschedule' | 'skip' | 'complete_today' | 'rejected';
   scheduleAdjustmentNote?: string;
+  scheduleMode?: DailyScheduleMode;
+  scheduledTasks?: ScheduledTask[];
   loggedExercises?: LoggedExercise[];
   formRecordingIds?: string[];
+  proofEntryIds?: string[];
   notes?: string;
 }
 
@@ -237,6 +309,38 @@ export interface CheckpointPhoto {
   thumbnailUrl?: string;
   weightKg?: number;
   notes?: string;
+}
+
+export interface HairGrowthPhoto {
+  id: string;
+  date: string;
+  pose: HairPoseType;
+  imageDataUrl: string;
+  hairLengthCm?: number;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface ProofEntry {
+  id: string;
+  taskId: string;
+  taskName: string;
+  taskType: ScheduleTaskType | 'workout' | 'meal';
+  date: string;
+  createdAt: string;
+  proofType: ProofType;
+  status: 'completed' | 'completed_without_proof';
+  completedWithoutProof: boolean;
+  completedWithoutProofReason?: CompleteWithoutProofReason;
+  imageDataUrl?: string;
+  note?: string;
+  checklist?: string[];
+  timerSeconds?: number;
+  location?: {
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+  };
 }
 
 export interface FormRecording {
